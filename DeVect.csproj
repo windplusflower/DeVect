@@ -1,0 +1,54 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net472</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <AssemblyName>DeVect</AssemblyName>
+    <RootNamespace>DeVect</RootNamespace>
+    <GameDir>D:\SteamLibrary\steamapps\common\Hollow Knight\hollow_knight_Data\Managed</GameDir>
+    <InstallDir>$(GameDir)\Mods\DeVect</InstallDir>
+  </PropertyGroup>
+
+  <Target Name="ValidatePaths" BeforeTargets="ResolveReferences">
+    <Error Condition="!Exists('$(GameDir)\Assembly-CSharp.dll')" Text="Cannot find Hollow Knight managed DLLs. Check GameDir in DeVect.csproj." />
+    <Error Condition="!Exists('$(GameDir)\MMHOOK_Assembly-CSharp.dll')" Text="Cannot find MMHOOK_Assembly-CSharp.dll. Ensure HK Modding API is installed." />
+  </Target>
+
+  <ItemGroup>
+    <Reference Include="Assembly-CSharp">
+      <HintPath>$(GameDir)\Assembly-CSharp.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine">
+      <HintPath>$(GameDir)\UnityEngine.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.CoreModule">
+      <HintPath>$(GameDir)\UnityEngine.CoreModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="PlayMaker">
+      <HintPath>$(GameDir)\PlayMaker.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="MMHOOK_Assembly-CSharp">
+      <HintPath>$(GameDir)\MMHOOK_Assembly-CSharp.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="MMHOOK_PlayMaker">
+      <HintPath>$(GameDir)\MMHOOK_PlayMaker.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="MonoMod.RuntimeDetour">
+      <HintPath>$(GameDir)\MonoMod.RuntimeDetour.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <Target Name="InstallMod" AfterTargets="Build">
+    <MakeDir Directories="$(InstallDir)" />
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(InstallDir)" />
+    <Copy SourceFiles="$(TargetDir)$(AssemblyName).pdb" DestinationFolder="$(InstallDir)" Condition="Exists('$(TargetDir)$(AssemblyName).pdb')" />
+  </Target>
+</Project>
