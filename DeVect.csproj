@@ -58,18 +58,10 @@
     </Reference>
   </ItemGroup>
 
-  <ItemGroup>
-    <None Include="assets\闪电.png">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-  </ItemGroup>
-
   <Target Name="InstallMod" AfterTargets="Build">
     <MakeDir Directories="$(InstallDir)" />
-    <MakeDir Directories="$(InstallDir)\assets" />
     <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(InstallDir)" />
     <Copy SourceFiles="$(TargetDir)$(AssemblyName).pdb" DestinationFolder="$(InstallDir)" Condition="Exists('$(TargetDir)$(AssemblyName).pdb')" />
-    <Copy SourceFiles="assets\闪电.png" DestinationFolder="$(InstallDir)\assets" />
 
     <RemoveDir Condition="Exists('$(InstallDir)\Archive')" Directories="$(InstallDir)\Archive" />
     <MakeDir Directories="$(InstallDir)\Archive" />
@@ -77,7 +69,6 @@
     <ItemGroup>
       <PackageFiles Include="$(TargetPath)" />
       <PackageFiles Include="$(TargetDir)$(AssemblyName).pdb" Condition="Exists('$(TargetDir)$(AssemblyName).pdb')" />
-      <PackageFiles Include="assets\**\*" />
     </ItemGroup>
 
     <Copy
