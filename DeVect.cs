@@ -99,6 +99,7 @@ public partial class DeVectMod : Mod, IGlobalSettings<DeVectSettings>, IMenuMod,
         }
 
         EnsureOrbSystem();
+        TryInjectHeroSpellFsm(hero);
         _orbSystem?.OnHeroUpdate(hero, Time.deltaTime);
     }
 
@@ -129,23 +130,54 @@ public partial class DeVectMod : Mod, IGlobalSettings<DeVectSettings>, IMenuMod,
         }
 
         EnsureOrbSystem();
-        if (_orbSystem == null || !_orbSystem.ShouldInjectSpellFsm(self, hero))
+        if (!TryInjectSpellFsm(self, hero))
         {
             return;
         }
 
-        bool injected = false;
-        injected |= InjectSpellDetector(self, "Spell Choice");
-        injected |= InjectSpellDetector(self, "QC");
-        if (injected)
+        LogModInfo("Injected spell detector into Spell Control FSM.");
+    }
+
+    private void TryInjectHeroSpellFsm(HeroController hero)
+    {
+        if (_orbSystem == null || hero == null)
         {
-            _orbSystem.MarkSpellFsmInjected();
-            LogModInfo("Injected spell detector into Spell Control FSM.");
+            return;
+        }
+
+        PlayMakerFSM? spellFsm = FSMUtility.LocateFSM(hero.gameObject, "Spell Control");
+        if (TryInjectSpellFsm(spellFsm, hero))
+        {
+            LogModInfo("Injected spell detector into existing Spell Control FSM.");
         }
     }
 
-    private bool InjectSpellDetector(PlayMakerFSM fsm, string stateName)
+    private bool TryInjectSpellFsm(PlayMakerFSM? fsm, HeroController hero)
     {
+        if (_orbSystem == null || fsm == null || !_orbSystem.ShouldInjectSpellFsm(fsm, hero))
+        {
+            return false;
+        }
+
+        bool injected = false;
+        injected |= InjectSpellDetector(fsm, "Spell Choice");
+        injected |= InjectSpellDetector(fsm, "QC");
+        if (injected)
+        {
+            _orbSystem.MarkSpellFsmInjected();
+            return true;
+        }
+
+        return false;
+    }
+
+    private bool InjectSpellDetector(PlayMakerFSM? fsm, string stateName)
+    {
+        if (fsm == null)
+        {
+            return false;
+        }
+
         FsmState state = fsm.Fsm.GetState(stateName);
         if (state == null || state.Actions == null)
         {
