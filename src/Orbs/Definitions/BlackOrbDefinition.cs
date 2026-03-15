@@ -5,6 +5,11 @@ namespace DeVect.Orbs.Definitions;
 
 internal sealed class BlackOrbDefinition : IOrbDefinition
 {
+    private const float WhiteInitialScale = 0.75f;
+    private const float BlackInitialScale = 1f;
+    private const float WhitePassiveScale = 0.75f;
+    private const float BlackPassiveScale = 1f;
+
     public OrbTypeId TypeId => OrbTypeId.Black;
 
     public string DisplayName => "Black";
@@ -13,12 +18,15 @@ internal sealed class BlackOrbDefinition : IOrbDefinition
 
     public int GetInitialDamage(OrbTriggerContext context)
     {
-        return Mathf.Max(1, Mathf.CeilToInt(context.NailDamage * 0.75f) + context.FocusBonus);
+        float scale = context.GetSpellLevel(OrbTypeId.Black) >= 2 ? BlackInitialScale : WhiteInitialScale;
+        int baseDamage = Mathf.Max(1, Mathf.CeilToInt(context.NailDamage * scale));
+        return baseDamage + context.GetScaledShamanBonus(scale);
     }
 
     public void OnPassive(OrbTriggerContext context, OrbInstance instance)
     {
-        int bonusDamage = Mathf.Max(1, context.NailDamage) + context.FocusBonus;
+        float scale = context.GetSpellLevel(OrbTypeId.Black) >= 2 ? BlackPassiveScale : WhitePassiveScale;
+        int bonusDamage = Mathf.Max(1, Mathf.CeilToInt(context.NailDamage * scale)) + context.GetScaledShamanBonus(scale);
         instance.CurrentDamage += bonusDamage;
         context.LogDebug($"Black passive stored +{bonusDamage} damage. Total={instance.CurrentDamage}.");
     }

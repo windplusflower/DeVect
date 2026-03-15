@@ -5,6 +5,11 @@ namespace DeVect.Orbs.Definitions;
 
 internal sealed class YellowOrbDefinition : IOrbDefinition
 {
+    private const float WhitePassiveScale = 0.25f;
+    private const float BlackPassiveScale = 1f / 3f;
+    private const float WhiteEvocationScale = 0.75f;
+    private const float BlackEvocationScale = 1f;
+
     public OrbTypeId TypeId => OrbTypeId.Yellow;
 
     public string DisplayName => "Yellow";
@@ -24,7 +29,7 @@ internal sealed class YellowOrbDefinition : IOrbDefinition
             return;
         }
 
-        int damage = DeVect.Combat.OrbCombatService.GetCeilThirdDamage(context.NailDamage) + context.FocusBonus;
+        int damage = GetScaledDamage(context, GetPassiveScale(context));
         if (!context.Combat.TryDealOrbDamage(context.Hero, target, damage, AttackTypes.Generic))
         {
             return;
@@ -42,7 +47,7 @@ internal sealed class YellowOrbDefinition : IOrbDefinition
             return;
         }
 
-        int damage = Mathf.Max(1, context.NailDamage) + context.FocusBonus;
+        int damage = GetScaledDamage(context, GetEvocationScale(context));
         if (!context.Combat.TryDealOrbDamage(context.Hero, target, damage, AttackTypes.Generic))
         {
             return;
@@ -50,5 +55,21 @@ internal sealed class YellowOrbDefinition : IOrbDefinition
 
         context.Visuals.SpawnLightningVisual(context.Combat.GetLightningImpactVisualPosition(target));
         context.LogDebug($"Yellow evocation hit target {target.name} for {damage}.");
+    }
+
+    private static float GetPassiveScale(OrbTriggerContext context)
+    {
+        return context.GetSpellLevel(OrbTypeId.Yellow) >= 2 ? BlackPassiveScale : WhitePassiveScale;
+    }
+
+    private static float GetEvocationScale(OrbTriggerContext context)
+    {
+        return context.GetSpellLevel(OrbTypeId.Yellow) >= 2 ? BlackEvocationScale : WhiteEvocationScale;
+    }
+
+    private static int GetScaledDamage(OrbTriggerContext context, float scale)
+    {
+        int baseDamage = Mathf.Max(1, Mathf.CeilToInt(context.NailDamage * scale));
+        return baseDamage + context.GetScaledShamanBonus(scale);
     }
 }

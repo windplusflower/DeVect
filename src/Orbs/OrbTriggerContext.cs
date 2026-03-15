@@ -1,5 +1,6 @@
 using System;
 using DeVect.Combat;
+using DeVect.Orbs.Definitions;
 using DeVect.Orbs.Runtime;
 using DeVect.Visual;
 
@@ -10,7 +11,8 @@ internal sealed class OrbTriggerContext
     public OrbTriggerContext(
         HeroController hero,
         int nailDamage,
-        int focusBonus,
+        int baseShamanBonus,
+        Func<OrbTypeId, int> getSpellLevel,
         OrbCombatService combat,
         OrbVisualService visuals,
         OrbRuntime runtime,
@@ -18,7 +20,8 @@ internal sealed class OrbTriggerContext
     {
         Hero = hero;
         NailDamage = nailDamage;
-        FocusBonus = focusBonus;
+        BaseShamanBonus = baseShamanBonus;
+        GetSpellLevel = getSpellLevel ?? throw new ArgumentNullException(nameof(getSpellLevel));
         Combat = combat;
         Visuals = visuals;
         Runtime = runtime;
@@ -29,7 +32,9 @@ internal sealed class OrbTriggerContext
 
     public int NailDamage { get; }
 
-    public int FocusBonus { get; }
+    public int BaseShamanBonus { get; }
+
+    public Func<OrbTypeId, int> GetSpellLevel { get; }
 
     public OrbCombatService Combat { get; }
 
@@ -38,4 +43,14 @@ internal sealed class OrbTriggerContext
     public OrbRuntime Runtime { get; }
 
     public Action<string> LogDebug { get; }
+
+    public int GetScaledShamanBonus(float damageScale)
+    {
+        if (BaseShamanBonus <= 0 || damageScale <= 0f)
+        {
+            return 0;
+        }
+
+        return Math.Max(0, UnityEngine.Mathf.CeilToInt(NailDamage * 0.2f * damageScale));
+    }
 }

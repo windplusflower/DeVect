@@ -116,18 +116,25 @@ internal sealed class OrbSystem
 
     public bool ShouldConsumeFireballSpell()
     {
-        return CanProcess() && _getHero() != null;
+        return CanConsumeSpellForOrb(OrbTypeId.Yellow);
     }
 
     public bool ShouldConsumeDiveSpell()
     {
-        return CanProcess() && _getHero() != null;
+        return CanConsumeSpellForOrb(OrbTypeId.Black);
     }
 
-    public int GetCharmFocusBonus()
+    public bool ShouldConsumeShriekSpell()
+    {
+        return CanConsumeSpellForOrb(OrbTypeId.White);
+    }
+
+    public int GetShamanStoneBonusFromNailDamage()
     {
         PlayerData? playerData = PlayerData.instance;
-        return playerData != null && HasShamanStone(playerData) ? 2 : 0;
+        return playerData != null && HasShamanStone(playerData)
+            ? Mathf.CeilToInt(_getCurrentNailDamage() * 0.2f)
+            : 0;
     }
 
     public int GetOrbSlotCapacity()
@@ -144,7 +151,7 @@ internal sealed class OrbSystem
         }
 
         HeroController? hero = _getHero();
-        if (hero == null)
+        if (hero == null || !CanGenerateOrbForSpell(spawnType))
         {
             return;
         }
@@ -251,7 +258,7 @@ internal sealed class OrbSystem
 
     private OrbTriggerContext CreateTriggerContext(HeroController hero)
     {
-        return new OrbTriggerContext(hero, _getCurrentNailDamage(), GetCharmFocusBonus(), _combatService, _visualService, _runtime, _logDebug);
+        return new OrbTriggerContext(hero, _getCurrentNailDamage(), GetShamanStoneBonusFromNailDamage(), GetCurrentSpellLevelForOrb, _combatService, _visualService, _runtime, _logDebug);
     }
 
     private void RestoreRuntimeIfNeeded(HeroController hero)
@@ -270,9 +277,42 @@ internal sealed class OrbSystem
         return playerData.GetBool("equippedCharm_19");
     }
 
+    public bool CanGenerateOrbForSpell(OrbTypeId orbType)
+    {
+        PlayerData? playerData = PlayerData.instance;
+        return playerData != null && HasUnlockedSpellForOrb(playerData, orbType);
+    }
+
     private static bool HasFlukenest(PlayerData playerData)
     {
         return playerData.GetBool("equippedCharm_11");
+    }
+
+    private bool CanConsumeSpellForOrb(OrbTypeId orbType)
+    {
+        return CanProcess() && _getHero() != null && CanGenerateOrbForSpell(orbType);
+    }
+
+    private int GetCurrentSpellLevelForOrb(OrbTypeId orbType)
+    {
+        PlayerData? playerData = PlayerData.instance;
+        return playerData == null ? 0 : GetSpellLevelForOrb(playerData, orbType);
+    }
+
+    private static bool HasUnlockedSpellForOrb(PlayerData playerData, OrbTypeId orbType)
+    {
+        return GetSpellLevelForOrb(playerData, orbType) > 0;
+    }
+
+    private static int GetSpellLevelForOrb(PlayerData playerData, OrbTypeId orbType)
+    {
+        return orbType switch
+        {
+            OrbTypeId.Yellow => Math.Max(0, playerData.GetInt("fireballLevel")),
+            OrbTypeId.White => Math.Max(0, playerData.GetInt("screamLevel")),
+            OrbTypeId.Black => Math.Max(0, playerData.GetInt("quakeLevel")),
+            _ => 0
+        };
     }
 
     private bool CanProcess()

@@ -261,7 +261,7 @@ public partial class DeVectMod : Mod, IGlobalSettings<DeVectSettings>, IMenuMod,
         }
 
         EnsureOrbSystem();
-        return _orbSystem?.ShouldConsumeFireballSpell() ?? false;
+        return _orbSystem?.ShouldConsumeShriekSpell() ?? false;
     }
 
     private void OnActiveSceneChanged(UnityEngine.SceneManagement.Scene from, UnityEngine.SceneManagement.Scene to)

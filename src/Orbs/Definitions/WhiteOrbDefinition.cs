@@ -6,6 +6,9 @@ namespace DeVect.Orbs.Definitions;
 
 internal sealed class WhiteOrbDefinition : IOrbDefinition
 {
+    private const float WhiteInitialScale = 0.25f;
+    private const float BlackInitialScale = 1f / 3f;
+
     public OrbTypeId TypeId => OrbTypeId.White;
 
     public string DisplayName => "White";
@@ -14,7 +17,9 @@ internal sealed class WhiteOrbDefinition : IOrbDefinition
 
     public int GetInitialDamage(OrbTriggerContext context)
     {
-        return Mathf.Max(1, DeVect.Combat.OrbCombatService.GetCeilThirdDamage(context.NailDamage) + context.FocusBonus);
+        float scale = context.GetSpellLevel(OrbTypeId.White) >= 2 ? BlackInitialScale : WhiteInitialScale;
+        int baseDamage = Mathf.Max(1, Mathf.CeilToInt(context.NailDamage * scale));
+        return baseDamage + context.GetScaledShamanBonus(scale);
     }
 
     public void OnPassive(OrbTriggerContext context, OrbInstance instance)

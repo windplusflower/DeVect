@@ -64,8 +64,6 @@ public sealed class SpellDetectAction : FsmStateAction
                 Finish();
                 return;
             }
-
-            OnFireballCast?.Invoke();
         }
 
         Finish();
