@@ -1,4 +1,6 @@
 using System.Collections.Generic;
+using System.Linq;
+using DeVect.Combat;
 using DeVect.Orbs.Definitions;
 using DeVect.Visual;
 using UnityEngine;
@@ -35,7 +37,7 @@ internal sealed class OrbRuntime
         _visualService = visualService;
     }
 
-    public void EnsureBuilt(Transform heroTransform, IReadOnlyList<OrbTypeId> persistedTypes, OrbDefinitionRegistry definitions)
+    public void EnsureBuilt(Transform heroTransform, IReadOnlyList<OrbInstanceSnapshot> persistedOrbs, OrbDefinitionRegistry definitions)
     {
         if (_root != null && IsBoundTo(heroTransform))
         {
@@ -61,9 +63,10 @@ internal sealed class OrbRuntime
         }
 
         _suppressSpawnEntryAnimation = true;
-        for (int i = 0; i < persistedTypes.Count; i++)
+        List<OrbInstanceSnapshot> orderedSnapshots = persistedOrbs.OrderBy(snapshot => snapshot.SlotIndex).ToList();
+        for (int i = 0; i < orderedSnapshots.Count; i++)
         {
-            TrySpawnOrbInSlot(GetFillOrder()[i], persistedTypes[i], definitions);
+            TrySpawnOrbInSlot(orderedSnapshots[i].SlotIndex, orderedSnapshots[i].TypeId, orderedSnapshots[i].CurrentDamage, definitions);
         }
 
         _suppressSpawnEntryAnimation = false;
@@ -141,12 +144,12 @@ internal sealed class OrbRuntime
         List<OrbInstanceSnapshot> snapshots = new();
         foreach (int slotIndex in GetFillOrder())
         {
-            OrbSlotRuntime slot = _slots[slotIndex];
-            if (slot != null && slot.Occupant != null)
-            {
-                snapshots.Add(new OrbInstanceSnapshot(slot.Occupant.TypeId, slotIndex));
+                OrbSlotRuntime slot = _slots[slotIndex];
+                if (slot != null && slot.Occupant != null)
+                {
+                    snapshots.Add(new OrbInstanceSnapshot(slot.Occupant.TypeId, slotIndex, slot.Occupant.CurrentDamage));
+                }
             }
-        }
 
         return snapshots;
     }
@@ -163,7 +166,7 @@ internal sealed class OrbRuntime
         }
     }
 
-    public bool TrySpawnOrbInNextAvailableSlot(OrbTypeId typeId, OrbDefinitionRegistry definitions)
+    public bool TrySpawnOrbInNextAvailableSlot(OrbTypeId typeId, int nailDamage, OrbDefinitionRegistry definitions)
     {
         for (int i = 0; i < GetFillOrder().Length; i++)
         {
@@ -173,13 +176,13 @@ internal sealed class OrbRuntime
                 continue;
             }
 
-            return TrySpawnOrbInSlot(slotIndex, typeId, definitions);
+            return TrySpawnOrbInSlot(slotIndex, typeId, GetInitialDamageForOrb(typeId, nailDamage), definitions);
         }
 
         return false;
     }
 
-    public bool TryForceInsertOrbFromLeft(OrbTypeId newTypeId, OrbDefinitionRegistry definitions, out OrbInstance? evictedOrb)
+    public bool TryForceInsertOrbFromLeft(OrbTypeId newTypeId, int nailDamage, OrbDefinitionRegistry definitions, out OrbInstance? evictedOrb)
     {
         evictedOrb = null;
         if (_root == null || GetActiveOrbCount() < 3)
@@ -212,15 +215,43 @@ internal sealed class OrbRuntime
         RefreshSlotVisual(centerSlot);
 
         IOrbDefinition newDefinition = definitions.Get(newTypeId);
-        SpriteRenderer newRenderer = _visualService.CreateOrbRenderer("DeVect_YellowOrb_Inserted", newDefinition.OrbColor);
+        SpriteRenderer newRenderer = _visualService.CreateOrbRenderer($"DeVect_{newDefinition.DisplayName}Orb_Inserted", newTypeId, newDefinition.OrbColor);
         newRenderer.transform.SetParent(_root.transform, false);
         newRenderer.transform.localPosition = EvaluateArcPoint(GetSpawnEntryStartAngleDeg(LeftSlotIndex), SlotFanRadius);
         newRenderer.transform.localScale = new Vector3(YellowOrbScale, YellowOrbScale, 1f);
 
-        leftSlot.Occupant = new OrbInstance(newTypeId, newDefinition, newRenderer);
+        leftSlot.Occupant = new OrbInstance(newTypeId, newDefinition, newRenderer, GetInitialDamageForOrb(newTypeId, nailDamage));
         StartSpawnEntry(leftSlot, LeftSlotIndex);
         RefreshSlotVisual(leftSlot);
         return true;
+    }
+
+    public bool RemoveOrb(OrbInstance instance)
+    {
+        if (instance == null)
+        {
+            return false;
+        }
+
+        for (int i = 0; i < _slots.Length; i++)
+        {
+            OrbSlotRuntime slot = _slots[i];
+            if (slot?.Occupant != instance)
+            {
+                continue;
+            }
+
+            if (instance.Renderer != null)
+            {
+                Object.Destroy(instance.Renderer.gameObject);
+            }
+
+            slot.Clear();
+            CollapseSlotsAfterRemoval(i);
+            return true;
+        }
+
+        return false;
     }
 
     public void Dispose()
@@ -252,7 +283,7 @@ internal sealed class OrbRuntime
         Dispose();
     }
 
-    private bool TrySpawnOrbInSlot(int slotIndex, OrbTypeId typeId, OrbDefinitionRegistry definitions)
+    private bool TrySpawnOrbInSlot(int slotIndex, OrbTypeId typeId, int currentDamage, OrbDefinitionRegistry definitions)
     {
         if (_root == null)
         {
@@ -260,13 +291,13 @@ internal sealed class OrbRuntime
         }
 
         IOrbDefinition definition = definitions.Get(typeId);
-        SpriteRenderer renderer = _visualService.CreateOrbRenderer($"DeVect_{definition.DisplayName}Orb_{slotIndex}", definition.OrbColor);
+        SpriteRenderer renderer = _visualService.CreateOrbRenderer($"DeVect_{definition.DisplayName}Orb_{slotIndex}", typeId, definition.OrbColor);
         renderer.transform.SetParent(_root.transform, false);
         renderer.transform.localPosition = SlotLocalPositions[slotIndex];
         renderer.transform.localScale = new Vector3(YellowOrbScale, YellowOrbScale, 1f);
 
         OrbSlotRuntime slot = _slots[slotIndex];
-        slot.Occupant = new OrbInstance(typeId, definition, renderer);
+        slot.Occupant = new OrbInstance(typeId, definition, renderer, currentDamage);
         slot.CurrentLocalPosition = SlotLocalPositions[slotIndex];
         slot.TargetLocalPosition = SlotLocalPositions[slotIndex];
         slot.CurrentAngleDeg = GetSlotAngleDeg(slotIndex);
@@ -284,6 +315,39 @@ internal sealed class OrbRuntime
 
         RefreshSlotVisual(slot);
         return true;
+    }
+
+    private void CollapseSlotsAfterRemoval(int removedSlotIndex)
+    {
+        for (int slotIndex = removedSlotIndex - 1; slotIndex >= LeftSlotIndex; slotIndex--)
+        {
+            OrbSlotRuntime fromSlot = _slots[slotIndex];
+            if (fromSlot?.Occupant == null)
+            {
+                continue;
+            }
+
+            OrbInstance movingInstance = fromSlot.Occupant;
+            fromSlot.Clear();
+            RefreshSlotVisual(fromSlot);
+
+            OrbSlotRuntime targetSlot = _slots[slotIndex + 1];
+            AssignInstanceToSlot(targetSlot, movingInstance, slotIndex + 1, SlotMoveDuration);
+        }
+
+        RefreshSlotVisual(_slots[LeftSlotIndex]);
+    }
+
+    private void AssignInstanceToSlot(OrbSlotRuntime slot, OrbInstance instance, int targetSlotIndex, float duration)
+    {
+        slot.Occupant = instance;
+        StartSlotMove(slot, targetSlotIndex, duration);
+        RefreshSlotVisual(slot);
+    }
+
+    private static int GetInitialDamageForOrb(OrbTypeId typeId, int nailDamage)
+    {
+        return typeId == OrbTypeId.White ? OrbCombatService.GetCeilHalfDamage(nailDamage) : 0;
     }
 
     private static void SetDashedRingVisible(OrbSlotRuntime slot, bool visible)

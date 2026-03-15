@@ -153,8 +153,8 @@ public partial class DeVectMod : Mod, IGlobalSettings<DeVectSettings>, IMenuMod,
         }
 
         bool injected = false;
-        injected |= InjectFireballDetector(self, "Spell Choice");
-        injected |= InjectFireballDetector(self, "QC");
+        injected |= InjectSpellDetector(self, "Spell Choice");
+        injected |= InjectSpellDetector(self, "QC");
         if (injected)
         {
             _orbSystem.MarkSpellFsmInjected();
@@ -162,7 +162,7 @@ public partial class DeVectMod : Mod, IGlobalSettings<DeVectSettings>, IMenuMod,
         }
     }
 
-    private bool InjectFireballDetector(PlayMakerFSM fsm, string stateName)
+    private bool InjectSpellDetector(PlayMakerFSM fsm, string stateName)
     {
         FsmState state = fsm.Fsm.GetState(stateName);
         if (state == null || state.Actions == null)
@@ -172,17 +172,19 @@ public partial class DeVectMod : Mod, IGlobalSettings<DeVectSettings>, IMenuMod,
 
         for (int i = 0; i < state.Actions.Length; i++)
         {
-            if (state.Actions[i] is FireballDetectAction)
+            if (state.Actions[i] is SpellDetectAction)
             {
                 return false;
             }
         }
 
         FsmStateAction[] newActions = new FsmStateAction[state.Actions.Length + 1];
-        newActions[0] = new FireballDetectAction
+        newActions[0] = new SpellDetectAction
         {
             OnFireballCast = HandleFireballCast,
-            ShouldConsumeSpell = ShouldConsumeFireballSpell
+            OnShriekCast = HandleShriekCast,
+            ShouldConsumeFireballSpell = ShouldConsumeFireballSpell,
+            ShouldConsumeShriekSpell = ShouldConsumeShriekSpell
         };
 
         for (int i = 0; i < state.Actions.Length; i++)
@@ -205,7 +207,29 @@ public partial class DeVectMod : Mod, IGlobalSettings<DeVectSettings>, IMenuMod,
         _orbSystem?.OnFireballCast();
     }
 
+    private void HandleShriekCast()
+    {
+        if (!_settings.Enabled || _isShuttingDown)
+        {
+            return;
+        }
+
+        EnsureOrbSystem();
+        _orbSystem?.OnShriekCast();
+    }
+
     private bool ShouldConsumeFireballSpell()
+    {
+        if (!_settings.Enabled || _isShuttingDown)
+        {
+            return false;
+        }
+
+        EnsureOrbSystem();
+        return _orbSystem?.ShouldConsumeFireballSpell() ?? false;
+    }
+
+    private bool ShouldConsumeShriekSpell()
     {
         if (!_settings.Enabled || _isShuttingDown)
         {
@@ -266,7 +290,21 @@ public partial class DeVectMod : Mod, IGlobalSettings<DeVectSettings>, IMenuMod,
     {
         if (GameManager.instance != null && GameManager.instance.playerData != null)
         {
-            _lastKnownNailDamage = Math.Max(1, GameManager.instance.playerData.nailDamage);
+            PlayerData playerData = GameManager.instance.playerData;
+            int baseDamage = Math.Max(1, playerData.nailDamage);
+            float multiplier = 1f;
+
+            if (playerData.GetBool("equippedCharm_25"))
+            {
+                multiplier *= 1.5f;
+            }
+
+            if (playerData.GetBool("equippedCharm_6") && playerData.GetInt("health") == 1)
+            {
+                multiplier *= 1.75f;
+            }
+
+            _lastKnownNailDamage = Math.Max(1, Mathf.RoundToInt(baseDamage * multiplier));
         }
 
         return Math.Max(1, _lastKnownNailDamage);

@@ -39,7 +39,8 @@ internal sealed class OrbSystem
         _combatService = new OrbCombatService();
         _definitions = new OrbDefinitionRegistry(new IOrbDefinition[]
         {
-            new YellowOrbDefinition()
+            new YellowOrbDefinition(),
+            new WhiteOrbDefinition()
         });
         _runtime = new OrbRuntime(_visualService);
     }
@@ -79,6 +80,21 @@ internal sealed class OrbSystem
 
     public void OnFireballCast()
     {
+        HandleSpellCast(OrbTypeId.Yellow);
+    }
+
+    public void OnShriekCast()
+    {
+        HandleSpellCast(OrbTypeId.White);
+    }
+
+    public bool ShouldConsumeFireballSpell()
+    {
+        return CanProcess() && _getHero() != null;
+    }
+
+    private void HandleSpellCast(OrbTypeId spawnType)
+    {
         if (!CanProcess())
         {
             return;
@@ -91,7 +107,6 @@ internal sealed class OrbSystem
         }
 
         RestoreRuntimeIfNeeded(hero);
-        OrbTypeId spawnType = _definitions.GetDefaultTypeForFireball();
         if (_runtime.GetActiveOrbCount() >= 3)
         {
             TriggerEvocation(hero, spawnType);
@@ -99,16 +114,11 @@ internal sealed class OrbSystem
             return;
         }
 
-        if (_runtime.TrySpawnOrbInNextAvailableSlot(spawnType, _definitions))
+        if (_runtime.TrySpawnOrbInNextAvailableSlot(spawnType, _getCurrentNailDamage(), _definitions))
         {
             _persistentState.ReplaceFromRuntime(_runtime.SnapshotActiveOrbs());
             _logDebug($"Spawned {spawnType} orb. Filled slots={_persistentState.GetFilledCount()}");
         }
-    }
-
-    public bool ShouldConsumeFireballSpell()
-    {
-        return CanProcess() && _getHero() != null;
     }
 
     public void OnSceneChanged()
@@ -163,11 +173,23 @@ internal sealed class OrbSystem
         {
             activeOrbs[i].Definition.OnPassive(context, activeOrbs[i]);
         }
+
+        for (int i = 0; i < activeOrbs.Count; i++)
+        {
+            if (!activeOrbs[i].IsPendingRemoval)
+            {
+                continue;
+            }
+
+            _runtime.RemoveOrb(activeOrbs[i]);
+        }
+
+        _persistentState.ReplaceFromRuntime(_runtime.SnapshotActiveOrbs());
     }
 
     private void TriggerEvocation(HeroController hero, OrbTypeId spawnType)
     {
-        if (!_runtime.TryForceInsertOrbFromLeft(spawnType, _definitions, out OrbInstance? evictedOrb) || evictedOrb == null)
+        if (!_runtime.TryForceInsertOrbFromLeft(spawnType, _getCurrentNailDamage(), _definitions, out OrbInstance? evictedOrb) || evictedOrb == null)
         {
             return;
         }
@@ -182,7 +204,7 @@ internal sealed class OrbSystem
 
     private void RestoreRuntimeIfNeeded(HeroController hero)
     {
-        _runtime.EnsureBuilt(hero.transform, _persistentState.FilledOrbSequence, _definitions);
+        _runtime.EnsureBuilt(hero.transform, _persistentState.FilledOrbs, _definitions);
     }
 
     private bool CanProcess()

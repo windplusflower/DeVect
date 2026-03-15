@@ -23,9 +23,23 @@ internal sealed class OrbCombatService
 
     public HealthManager? TryPickRandomEnemyInRange(HeroController hero)
     {
-        if (hero == null)
+        List<HealthManager> candidates = FindAllEnemiesInRange(hero);
+
+        if (candidates.Count == 0)
         {
             return null;
+        }
+
+        int index = UnityEngine.Random.Range(0, candidates.Count);
+        return candidates[index];
+    }
+
+    public List<HealthManager> FindAllEnemiesInRange(HeroController hero)
+    {
+        List<HealthManager> candidates = new();
+        if (hero == null)
+        {
+            return candidates;
         }
 
         if (DrawEnemySearchDebugBox)
@@ -39,10 +53,9 @@ internal sealed class OrbCombatService
         int hitCount = Physics2D.OverlapBoxNonAlloc(searchCenter, EnemySearchBoxSize, 0f, _enemySearchResults);
         if (hitCount <= 0)
         {
-            return null;
+            return candidates;
         }
 
-        List<HealthManager> candidates = new();
         HashSet<HealthManager> seen = new();
         for (int i = 0; i < hitCount; i++)
         {
@@ -66,13 +79,7 @@ internal sealed class OrbCombatService
             candidates.Add(healthManager);
         }
 
-        if (candidates.Count == 0)
-        {
-            return null;
-        }
-
-        int index = UnityEngine.Random.Range(0, candidates.Count);
-        return candidates[index];
+        return candidates;
     }
 
     public void TickDebugVisuals()
@@ -134,6 +141,18 @@ internal sealed class OrbCombatService
         return target.transform.position + new Vector3(0f, topOffset, 0f);
     }
 
+    public Vector3 GetGlassHitVisualPosition(HealthManager target)
+    {
+        float topOffset = 1f;
+        Collider2D collider = target.GetComponent<Collider2D>();
+        if (collider != null)
+        {
+            topOffset = Mathf.Max(topOffset, collider.bounds.extents.y * 0.55f);
+        }
+
+        return target.transform.position + new Vector3(0f, topOffset, 0f);
+    }
+
     public static bool IsEnemyCollider(Collider2D collider)
     {
         if (collider == null)
@@ -154,6 +173,11 @@ internal sealed class OrbCombatService
     public static int GetCeilThirdDamage(int baseDamage)
     {
         return Mathf.CeilToInt(Math.Max(1, baseDamage) / 3f);
+    }
+
+    public static int GetCeilHalfDamage(int baseDamage)
+    {
+        return Mathf.CeilToInt(Math.Max(1, baseDamage) / 2f);
     }
 
     private static float GetHitDirection(Transform heroTransform, Transform enemyTransform)
