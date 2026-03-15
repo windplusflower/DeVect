@@ -13,7 +13,6 @@ namespace DeVect;
 public class DeVectSettings
 {
     public bool Enabled = true;
-    public int MinBaseHealth = 5;
 }
 
 public partial class DeVectMod : Mod, IGlobalSettings<DeVectSettings>, IMenuMod, ITogglableMod
@@ -35,7 +34,7 @@ public partial class DeVectMod : Mod, IGlobalSettings<DeVectSettings>, IMenuMod,
         _isShuttingDown = false;
         EnsureOrbSystem();
 
-        ModHooks.GetPlayerIntHook += OnGetPlayerInt;
+        ModHooks.BeforeSavegameSaveHook += OnBeforeSavegameSave;
         ModHooks.HeroUpdateHook += OnHeroUpdate;
         ModHooks.SlashHitHook += OnSlashHit;
         On.PlayMakerFSM.OnEnable += OnPlayMakerFsmEnable;
@@ -47,7 +46,7 @@ public partial class DeVectMod : Mod, IGlobalSettings<DeVectSettings>, IMenuMod,
 
     public void Unload()
     {
-        ModHooks.GetPlayerIntHook -= OnGetPlayerInt;
+        ModHooks.BeforeSavegameSaveHook -= OnBeforeSavegameSave;
         ModHooks.HeroUpdateHook -= OnHeroUpdate;
         ModHooks.SlashHitHook -= OnSlashHit;
         On.PlayMakerFSM.OnEnable -= OnPlayMakerFsmEnable;
@@ -72,28 +71,11 @@ public partial class DeVectMod : Mod, IGlobalSettings<DeVectSettings>, IMenuMod,
             new IMenuMod.MenuEntry(
                 "Enable DeVect",
                 new[] { "Off", "On" },
-                "Toggle DeVect knight-body modifications.",
+                "Toggle the DeVect orb system.",
                 index => _settings.Enabled = index == 1,
                 () => _settings.Enabled ? 1 : 0
-            ),
-            new IMenuMod.MenuEntry(
-                "Min Base Health",
-                new[] { "3", "4", "5", "6", "7", "8", "9" },
-                "Clamp maxHealthBase to at least this value.",
-                index => _settings.MinBaseHealth = index + 3,
-                () => Math.Max(0, Math.Min(6, _settings.MinBaseHealth - 3))
             )
         };
-    }
-
-    private int OnGetPlayerInt(string key, int value)
-    {
-        if (!_settings.Enabled || _isShuttingDown)
-        {
-            return value;
-        }
-
-        return key == "maxHealthBase" ? Math.Max(value, _settings.MinBaseHealth) : value;
     }
 
     private void OnHeroUpdate()
@@ -158,7 +140,7 @@ public partial class DeVectMod : Mod, IGlobalSettings<DeVectSettings>, IMenuMod,
         if (injected)
         {
             _orbSystem.MarkSpellFsmInjected();
-            LogModInfo("Injected fireball detector into Spell Control FSM.");
+            LogModInfo("Injected spell detector into Spell Control FSM.");
         }
     }
 
@@ -278,6 +260,23 @@ public partial class DeVectMod : Mod, IGlobalSettings<DeVectSettings>, IMenuMod,
     {
         _isShuttingDown = true;
         _orbSystem?.OnShutdown();
+    }
+
+    private void OnBeforeSavegameSave(SaveGameData data)
+    {
+        if (!_settings.Enabled || _isShuttingDown)
+        {
+            return;
+        }
+
+        PlayerData? playerData = PlayerData.instance;
+        if (playerData == null || !playerData.GetBool("atBench"))
+        {
+            return;
+        }
+
+        EnsureOrbSystem();
+        _orbSystem?.ClearGeneratedOrbs();
     }
 
     private void ResetRuntimeState()

@@ -202,6 +202,13 @@ internal sealed class OrbSystem
         _runtime.Dispose();
     }
 
+    public void ClearGeneratedOrbs()
+    {
+        _persistentState.Clear();
+        _runtime.Dispose();
+        _logDebug("Cleared all generated orbs on bench save.");
+    }
+
     public bool ShouldInjectSpellFsm(PlayMakerFSM fsm, HeroController hero)
     {
         return CanProcess() && fsm != null && !_spellFsmInjected && fsm.gameObject == hero.gameObject && fsm.FsmName == "Spell Control";
