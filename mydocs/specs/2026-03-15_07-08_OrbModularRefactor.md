@@ -1,0 +1,462 @@
+# SDD Spec: 黄球系统解耦与多球种可扩展重构
+
+## 0. 🚨 Open Questions (MUST BE CLEAR BEFORE CODING)
+- None
+
+## 1. Requirements (Context)
+- **Goal**: 将当前集中在 `DeVect.cs` 的黄球逻辑拆分为职责清晰的模块，并建立可扩展的“球种能力模型”，让未来新增黑球、白球等球种时，只需新增球种定义与对应能力实现，而不必继续堆叠在单文件中。
+- **In-Scope**:
+  - 维持现有黄球的已实现行为与外部表现：填充、被动、激发、索敌、伤害、闪电特效、场景切换保留、退出清理。
+  - 按职责拆分文件：Mod 入口、球系统编排、球运行时、球槽状态、球种定义、战斗效果、视觉特效、FSM fireball 检测。
+  - 为“不同球种拥有各自被动/激发”建立统一抽象层，至少支撑黄球以实现方式接入该抽象。
+  - 为后续黑球、白球保留接入点：球种标识、球种定义、被动能力接口、激发能力接口、创建/插槽/触发流程。
+  - 保持现有工程仍可通过 `DeVect.csproj` 构建，不引入外部依赖。
+- **Out-of-Scope**:
+  - 本次不实际实现黑球、白球具体数值和战斗效果。
+  - 不新增配置菜单、编辑器工具、资源包系统、ScriptableObject 流程。
+  - 不做与球系统无关的 UI、音频、存档迁移重做。
+
+## 1.5 Code Map (Project Topology)
+- **Core Logic**:
+  - `DeVect.cs`: 当前唯一实现文件，承载 Mod 生命周期、fireball 检测、骨钉命中、黄球状态、索敌伤害、视觉生成、退出清理；是当前耦合中心。
+  - `DeVect.cs`: `DeVectMod` 直接编排输入事件、状态持久化、伤害结算与视觉运行时，缺少应用层/领域层边界。
+  - `DeVect.cs`: `OrbRuntime` 同时管理槽位状态、球渲染、插入动画、闪电特效与临时对象生命周期，职责过重。
+  - `DeVect.cs`: `TriggerPassiveOrbs()` / `TriggerEvocation()` 直接把“黄球规则”写死在 Mod 类中，未来增加黑球/白球会继续扩散条件分支。
+- **Entry Points**:
+  - `DeVect.cs`: `Initialize(...)` 注册 `ModHooks.GetPlayerIntHook`、`HeroUpdateHook`、`SlashHitHook`、`On.PlayMakerFSM.OnEnable`、场景切换与应用退出事件。
+  - `DeVect.cs`: `FireballDetectAction.OnEnter()` 是 fireball 施法检测入口，并回调 `HandleFireballCast()`。
+  - `DeVect.cs`: `OnSlashHit(...)` 是被动触发计数入口；`OnHeroUpdate()` 是视觉运行时与动画驱动入口。
+- **Data Models**:
+  - `DeVect.cs`: `DeVectSettings` 仅含全局开关与血量设置，与球系统配置解耦不足但影响较小。
+  - `DeVect.cs`: `OrbSlotRuntime` 仅表示“某槽位上有无黄球渲染器”，没有“球种”“能力定义”“运行时实例”概念。
+  - `DeVect.cs`: `_persistedFilledSlots` 只保存数量，不保存球种序列；这说明当前持久化模型仍是“单球种时代”的简化版。
+- **Dependencies**:
+  - `DeVect.csproj`: 引用 `Assembly-CSharp`、`MMHOOK_Assembly-CSharp`、`PlayMaker`、`UnityEngine.*`，工程为 Hollow Knight Mod 标准 C# 结构。
+  - `Modding.ModHooks`: 用于 HeroUpdate、SlashHit、PlayerData Hook。
+  - `On.PlayMakerFSM.OnEnable`: 用于 Spell Control FSM 注入 fireball 检测动作。
+  - `Assembly-CSharp.HealthManager` / `HitInstance`: 敌人伤害结算核心类型。
+  - `UnityEngine.SpriteRenderer` / `Texture2D` / `Physics2D`: 视觉绘制、运行时贴图与索敌扫描基础依赖。
+- **Likely Refactor Targets**:
+  - `DeVect.cs` -> `src/Mod/DeVectMod.cs`: 仅保留 Mod 生命周期、Hook 注册、顶层协调。
+  - `DeVect.cs` -> `src/Orbs/OrbSystem.cs`: 统一处理 fireball 产球、骨钉计数、被动/激发触发编排。
+  - `DeVect.cs` -> `src/Orbs/Runtime/*`: 拆出球槽、球实例、动画、临时特效运行时。
+  - `DeVect.cs` -> `src/Orbs/Definitions/*`: 拆出球种定义与能力接口，黄球作为第一个实现。
+  - `DeVect.cs` -> `src/Combat/*`: 拆出索敌、伤害、命中方向计算与闪电触发。
+
+## 2. Architecture (Optional - Populated in INNOVATE)
+- Strategy/Pattern: 采用“薄 Mod 入口 + 应用编排层 + 球种定义层 + 运行时表现层 + 战斗服务层”的分层方案，核心通过 `OrbDefinition` 多态承载不同球种的被动与激发能力。
+- Candidate A: `OrbDefinition` 多态方案（推荐）
+  - 核心思路：
+    - `DeVectMod` 只保留 Hook 注册、设置读取、场景/退出生命周期转发。
+    - `OrbSystem` 统一处理 fireball 施法、骨钉累计、被动触发、激发触发、场景恢复。
+    - `IOrbDefinition` / `OrbDefinition` 定义球种静态语义：`OrbTypeId`、显示名、颜色/视觉参数、`OnPassive(...)`、`OnEvocation(...)`。
+    - `OrbRuntime` 只管理槽位中的“球实例”和动画，不直接理解黄球/黑球/白球业务规则。
+    - `OrbCombatService` 负责索敌、伤害结算、命中方向；`OrbVisualService` 负责闪电或其他短生命周期特效。
+  - 优点：
+    - 新增球种时，主流程基本不改，只新增定义类和必要视觉参数。
+    - 被动/激发能力天然按球种隔离，避免 `switch`/`if` 蔓延到 Mod 入口和 Runtime。
+    - 运行时层只关心“这个槽位里是什么球”和“怎么动”，职责最清晰。
+  - 缺点：
+    - 相比当前单文件实现，类型数会明显增加。
+    - 首次重构需要建立更多显式上下文对象，短期编码量更高。
+- Candidate B: `enum + switch` 集中分发方案（不推荐）
+  - 核心思路：保留统一 `OrbSystem`，仅引入 `OrbType` 枚举，在 `TriggerPassive` / `TriggerEvocation` 中用 `switch` 分发不同球种逻辑。
+  - 优点：
+    - 改造快，迁移成本低。
+    - 文件数较少，初期看起来简单。
+  - 缺点：
+    - 随着黑球、白球、更多球种加入，分发逻辑会重新集中膨胀。
+    - 球种逻辑与系统编排再次耦合，和本次“保留扩展性”的目标冲突。
+- Candidate C: 完全数据驱动方案（本次不选）
+  - 核心思路：把球种行为、视觉、数值全部抽成可配置数据，再由解释层执行。
+  - 优点：
+    - 后续扩展理论上最灵活。
+  - 缺点：
+    - 对当前 HK Mod 小规模代码库过度设计；行为仍需代码实现，收益不匹配复杂度。
+- Decision: 选择 Candidate A，且本次只实现“黄球定义接入多态框架”，不预先实现黑球/白球行为。
+- Proposed Layers:
+  - `src/Mod/DeVectMod.cs`
+    - 责任：Mod 生命周期、Hook 注册/注销、全局设置、与 `OrbSystem` 的顶层连接。
+  - `src/Orbs/OrbSystem.cs`
+    - 责任：响应 fireball / slash / hero update / scene change / quitting；维护持久化状态；驱动 Runtime、Combat、Visual 与球种定义。
+  - `src/Orbs/Definitions/*`
+    - 责任：球种静态定义。
+    - 示例：`IOrbDefinition`、`YellowOrbDefinition`、`OrbDefinitionRegistry`、`OrbTypeId`。
+  - `src/Orbs/Runtime/*`
+    - 责任：槽位、球实例、插球顺序、挤出动画、跟随 Hero、跨场景重建。
+    - 示例：`OrbRuntime`、`OrbSlotRuntime`、`OrbInstance`、`TransientVisual`。
+  - `src/Combat/*`
+    - 责任：矩形索敌、伤害、方向计算。
+    - 示例：`OrbCombatService`、`EnemySearchService`。
+  - `src/Visual/*`
+    - 责任：闪电图片与短生命周期特效生成；如后续黑球/白球有差异视觉，也在该层扩展。
+  - `src/Fsm/FireballDetectAction.cs`
+    - 责任：从主文件剥离 FSM 动作定义，保持入口清晰。
+- Domain Model:
+  - `OrbTypeId`
+    - 含义：球种唯一标识，如 `Yellow`、`Black`、`White`。
+  - `OrbInstance`
+    - 含义：槽位中的单个球运行时实例。
+    - 最小字段：`OrbTypeId TypeId`、`IOrbDefinition Definition`、`SpriteRenderer Renderer`。
+  - `OrbTriggerContext`
+    - 含义：被动/激发执行时的上下文，避免定义层直接依赖 `DeVectMod`。
+    - 最小字段：Hero、当前骨钉伤害、`OrbCombatService`、`OrbRuntime`、随机源、日志入口。
+- Key Rules:
+  - `OrbSystem` 只决定“何时触发”，`OrbDefinition` 只决定“触发后做什么”。
+  - `OrbRuntime` 不直接结算伤害；它只报告槽位变更、被挤出实例和动画状态。
+  - `OrbDefinition` 不直接扫描 Unity 场景；统一通过 `OrbCombatService` 获取敌人和结算伤害。
+  - 持久化层本次从“填充数量”升级为“槽位球种序列”；即使当前只有黄球，也先把结构搭起来。
+  - 若未来某球种需要不同插入策略，也先由 `OrbSystem` 统一编排，本次不让 Runtime 承担策略分支。
+- Trade-offs:
+  - 收益：新增球种的改动面集中在定义层；主流程稳定；测试和排障边界更清晰。
+  - 成本：需要把当前直接互调的方法拆散，短期会带来跨文件引用和上下文对象设计。
+  - 风险：重构期间最容易破坏的是“满球再次 fireball 的挤出动画”和“场景切换保留”；PLAN 阶段必须把这些列为强约束逐项落地。
+
+## 3. Detailed Design & Implementation (Populated in PLAN)
+### 3.1 Data Structures & Interfaces
+- `File: DeVect.cs`
+  - 保留类型：
+    - `public class DeVectSettings`
+      - 不改字段：
+        - `public bool Enabled = true;`
+        - `public int MinBaseHealth = 5;`
+    - `public partial class DeVectMod : Mod, IGlobalSettings<DeVectSettings>, IMenuMod, ITogglableMod`
+      - 仅保留 Mod 入口职责。
+      - 保留/新增字段：
+        - `private DeVectSettings _settings = new();`
+        - `private OrbSystem? _orbSystem;`
+        - `private bool _isShuttingDown;`
+      - 保留方法签名：
+        - `public override string GetVersion()`
+        - `public override void Initialize(Dictionary<string, Dictionary<string, GameObject>> preloadedObjects)`
+        - `public void Unload()`
+        - `public void OnLoadGlobal(DeVectSettings settings)`
+        - `public DeVectSettings OnSaveGlobal()`
+        - `public bool ToggleButtonInsideMenu { get; }`
+        - `public List<IMenuMod.MenuEntry> GetMenuData(IMenuMod.MenuEntry? menu)`
+      - 新增私有方法签名：
+        - `private int OnGetPlayerInt(string key, int value)`
+        - `private void OnHeroUpdate()`
+        - `private void OnSlashHit(Collider2D otherCollider, GameObject slash)`
+        - `private void OnPlayMakerFsmEnable(On.PlayMakerFSM.orig_OnEnable orig, PlayMakerFSM self)`
+        - `private void OnActiveSceneChanged(UnityEngine.SceneManagement.Scene from, UnityEngine.SceneManagement.Scene to)`
+        - `private void OnApplicationQuitting()`
+        - `private void ResetRuntimeState()`
+        - `private void EnsureOrbSystem()`
+      - 约束：`DeVectMod` 不再包含球种业务规则、索敌实现、球槽动画实现、闪电生成实现。
+
+- `File: src/Orbs/OrbSystem.cs`
+  - `internal sealed class OrbSystem`
+    - 职责：球系统应用编排层；接收来自 `DeVectMod` 的事件并调度定义层、运行时层、战斗层、视觉层。
+    - 字段：
+      - `private readonly Func<bool> _isEnabled;`
+      - `private readonly Func<bool> _isShuttingDown;`
+      - `private readonly Func<int> _getCurrentNailDamage;`
+      - `private readonly Action<string> _logInfo;`
+      - `private readonly Action<string> _logDebug;`
+      - `private readonly OrbRuntime _runtime;`
+      - `private readonly OrbCombatService _combatService;`
+      - `private readonly OrbVisualService _visualService;`
+      - `private readonly OrbDefinitionRegistry _definitions;`
+      - `private readonly OrbPersistentState _persistentState;`
+      - `private int _nailHitCounter;`
+      - `private bool _spellFsmInjected;`
+    - 构造签名：
+      - `public OrbSystem(OrbSystemDependencies dependencies)`
+    - 方法签名：
+      - `public void OnHeroUpdate(HeroController hero, float deltaTime)`
+      - `public void OnSlashHit(Collider2D otherCollider)`
+      - `public void OnFireballCast()`
+      - `public void OnSceneChanged()`
+      - `public void OnShutdown()`
+      - `public void ResetAll()`
+      - `public bool ShouldInjectSpellFsm(PlayMakerFSM fsm, HeroController hero)`
+      - `public bool MarkSpellFsmInjected()`
+      - `public OrbPersistentState SnapshotPersistentState()`
+    - 私有方法签名：
+      - `private void TriggerPassiveOrbs(HeroController hero)`
+      - `private void TriggerEvocation(HeroController hero)`
+      - `private OrbTriggerContext CreateTriggerContext(HeroController hero)`
+      - `private void RestoreRuntimeIfNeeded(HeroController hero)`
+      - `private bool CanProcess()`
+    - 约束：
+      - `OrbSystem` 负责事件顺序和状态转移，不直接调用 `HealthManager.Hit()`，不直接创建 `SpriteRenderer`。
+
+- `File: src/Orbs/OrbSystemDependencies.cs`
+  - `internal sealed class OrbSystemDependencies`
+    - 职责：集中传入系统依赖，避免构造参数爆炸。
+    - 字段/属性：
+      - `public Func<bool> IsEnabled { get; set; }`
+      - `public Func<bool> IsShuttingDown { get; set; }`
+      - `public Func<int> GetCurrentNailDamage { get; set; }`
+      - `public Func<HeroController?> GetHero { get; set; }`
+      - `public Action<string> LogInfo { get; set; }`
+      - `public Action<string> LogDebug { get; set; }`
+      - `public OrbPersistentState PersistentState { get; set; }`
+
+- `File: src/Orbs/OrbPersistentState.cs`
+  - `internal sealed class OrbPersistentState`
+    - 职责：跨场景保留球系统的最小必要状态。
+    - 字段/属性：
+      - `public List<OrbTypeId> FilledOrbSequence { get; }`
+    - 方法签名：
+      - `public void ReplaceFromRuntime(IReadOnlyList<OrbInstanceSnapshot> snapshots)`
+      - `public int GetFilledCount()`
+      - `public void Clear()`
+    - 约束：本次即使只有黄球，也使用 `OrbTypeId` 序列而不是整数数量。
+
+- `File: src/Orbs/Definitions/OrbTypeId.cs`
+  - `internal enum OrbTypeId`
+    - 成员：
+      - `Yellow = 1`
+      - `Black = 2`
+      - `White = 3`
+
+- `File: src/Orbs/Definitions/IOrbDefinition.cs`
+  - `internal interface IOrbDefinition`
+    - 属性签名：
+      - `OrbTypeId TypeId { get; }`
+      - `string DisplayName { get; }`
+      - `Color OrbColor { get; }`
+    - 方法签名：
+      - `void OnPassive(OrbTriggerContext context, OrbInstance instance)`
+      - `void OnEvocation(OrbTriggerContext context, OrbInstance instance)`
+    - 约束：定义层只能通过 `OrbTriggerContext` 与外界交互，不直接依赖 `DeVectMod`。
+
+- `File: src/Orbs/Definitions/YellowOrbDefinition.cs`
+  - `internal sealed class YellowOrbDefinition : IOrbDefinition`
+    - 责任：承载现有黄球的被动/激发规则。
+    - 属性：
+      - `public OrbTypeId TypeId => OrbTypeId.Yellow;`
+      - `public string DisplayName => "Yellow";`
+      - `public Color OrbColor => new Color(1f, 0.85f, 0.15f, 1f);`
+    - 方法签名：
+      - `public void OnPassive(OrbTriggerContext context, OrbInstance instance)`
+      - `public void OnEvocation(OrbTriggerContext context, OrbInstance instance)`
+    - 行为约束：
+      - `OnPassive(...)` 维持当前黄球规则：每球各自随机选敌，造成 `Ceiling(nailDamage / 3)`。
+      - `OnEvocation(...)` 维持当前黄球规则：仅由被右侧挤出的旧黄球执行一次 `1x nailDamage`。
+
+- `File: src/Orbs/Definitions/OrbDefinitionRegistry.cs`
+  - `internal sealed class OrbDefinitionRegistry`
+    - 职责：球种定义注册与查询。
+    - 构造签名：
+      - `public OrbDefinitionRegistry(IEnumerable<IOrbDefinition> definitions)`
+    - 方法签名：
+      - `public IOrbDefinition Get(OrbTypeId typeId)`
+      - `public bool TryGet(OrbTypeId typeId, out IOrbDefinition? definition)`
+      - `public OrbTypeId GetDefaultTypeForFireball()`
+    - 约束：本次 `GetDefaultTypeForFireball()` 返回 `OrbTypeId.Yellow`，为未来不同施法来源生成不同球种预留扩展点。
+
+- `File: src/Orbs/OrbTriggerContext.cs`
+  - `internal sealed class OrbTriggerContext`
+    - 职责：球种能力执行上下文。
+    - 属性签名：
+      - `public HeroController Hero { get; }`
+      - `public int NailDamage { get; }`
+      - `public OrbCombatService Combat { get; }`
+      - `public OrbVisualService Visuals { get; }`
+      - `public OrbRuntime Runtime { get; }`
+      - `public Action<string> LogDebug { get; }`
+    - 构造签名：
+      - `public OrbTriggerContext(HeroController hero, int nailDamage, OrbCombatService combat, OrbVisualService visuals, OrbRuntime runtime, Action<string> logDebug)`
+
+- `File: src/Orbs/Runtime/OrbRuntime.cs`
+  - `internal sealed class OrbRuntime`
+    - 职责：球实例、槽位、跟随、插入、挤出动画、场景重建、临时运行时对象容器。
+    - 字段：
+      - `private readonly OrbVisualService _visualService;`
+      - `private readonly OrbSlotRuntime[] _slots = new OrbSlotRuntime[3];`
+      - `private Transform? _heroTransform;`
+      - `private GameObject? _root;`
+    - 构造签名：
+      - `public OrbRuntime(OrbVisualService visualService)`
+    - 方法签名：
+      - `public void EnsureBuilt(Transform heroTransform, IReadOnlyList<OrbTypeId> persistedTypes, OrbDefinitionRegistry definitions)`
+      - `public bool IsBoundTo(Transform heroTransform)`
+      - `public void TickFollow()`
+      - `public void TickAnimations(float deltaTime)`
+      - `public int GetActiveOrbCount()`
+      - `public bool HasAnyActiveOrb()`
+      - `public IReadOnlyList<OrbInstanceSnapshot> SnapshotActiveOrbs()`
+      - `public IEnumerable<OrbInstance> EnumerateActiveOrbs()`
+      - `public bool TrySpawnOrbInNextAvailableSlot(OrbTypeId typeId, OrbDefinitionRegistry definitions)`
+      - `public bool TryForceInsertOrbFromLeft(OrbTypeId newTypeId, OrbDefinitionRegistry definitions, out OrbInstance? evictedOrb)`
+      - `public void Dispose()`
+      - `public void SuspendAndRemember(OrbPersistentState persistentState)`
+    - 约束：
+      - `OrbRuntime` 只处理“球实例怎么出现、移动、销毁”，不解释球的业务含义。
+      - `TryForceInsertOrbFromLeft(...)` 必须返回被挤出的旧球实例，供 `OrbSystem` 决定是否触发激发。
+
+- `File: src/Orbs/Runtime/OrbInstance.cs`
+  - `internal sealed class OrbInstance`
+    - 职责：表示单个槽位中的球运行时实体。
+    - 属性签名：
+      - `public OrbTypeId TypeId { get; }`
+      - `public IOrbDefinition Definition { get; }`
+      - `public SpriteRenderer Renderer { get; }`
+    - 构造签名：
+      - `public OrbInstance(OrbTypeId typeId, IOrbDefinition definition, SpriteRenderer renderer)`
+
+- `File: src/Orbs/Runtime/OrbInstanceSnapshot.cs`
+  - `internal readonly struct OrbInstanceSnapshot`
+    - 字段：
+      - `public OrbTypeId TypeId { get; }`
+      - `public int SlotIndex { get; }`
+    - 构造签名：
+      - `public OrbInstanceSnapshot(OrbTypeId typeId, int slotIndex)`
+
+- `File: src/Orbs/Runtime/OrbSlotRuntime.cs`
+  - `internal sealed class OrbSlotRuntime`
+    - 职责：记录单槽锚点、当前球实例、动画状态。
+    - 属性签名：
+      - `public Transform Anchor { get; }`
+      - `public Vector3 InitialLocalPosition { get; }`
+      - `public OrbInstance? Occupant { get; set; }`
+      - `public Vector3 CurrentLocalPosition { get; set; }`
+      - `public Vector3 TargetLocalPosition { get; set; }`
+      - `public float MoveLerpT { get; set; }`
+      - `public bool IsOccupied { get; }`
+    - 构造签名：
+      - `public OrbSlotRuntime(Transform anchor)`
+    - 方法签名：
+      - `public void Clear()`
+
+- `File: src/Combat/OrbCombatService.cs`
+  - `internal sealed class OrbCombatService`
+    - 职责：统一处理索敌、伤害、方向计算。
+    - 字段：
+      - `private readonly Collider2D[] _enemySearchResults = new Collider2D[128];`
+    - 方法签名：
+      - `public HealthManager? TryPickRandomEnemyInRange(HeroController hero)`
+      - `public bool TryDealOrbDamage(HeroController hero, HealthManager target, int damage, AttackTypes attackType)`
+      - `public static bool IsEnemyCollider(Collider2D collider)`
+      - `public static int GetCeilThirdDamage(int baseDamage)`
+      - `private static float GetHitDirection(Transform heroTransform, Transform enemyTransform)`
+    - 常量约束：
+      - 搜敌矩形半宽 `20f`。
+      - 搜敌矩形半高 `10f`。
+
+- `File: src/Visual/OrbVisualService.cs`
+  - `internal sealed class OrbVisualService`
+    - 职责：统一生成球体 `SpriteRenderer`、虚线环、闪电图、临时视觉对象。
+    - 方法签名：
+      - `public void BuildDashedRing(Transform parent)`
+      - `public SpriteRenderer CreateOrbRenderer(string name, Color color)`
+      - `public void SpawnLightningVisual(Vector3 worldPosition)`
+      - `public void TickTransientVisuals(float deltaTime)`
+      - `public void DisposeTransientVisuals()`
+    - 私有方法签名：
+      - `private static Sprite CreatePixelSprite()`
+      - `private static Sprite CreateCircleSprite()`
+      - `private static Sprite CreateLightningSprite()`
+      - `private static void DrawBoltSegment(Texture2D texture, Vector2 from, Vector2 to)`
+      - `private static void PaintBoltPixel(Texture2D texture, int px, int py)`
+
+- `File: src/Visual/TransientVisual.cs`
+  - `internal sealed class TransientVisual`
+    - 保持当前生命周期语义，不改主结构。
+    - 构造签名：
+      - `public TransientVisual(GameObject root, SpriteRenderer renderer, float initialLifetime, Vector3 velocity, Color baseColor, Vector3 baseScale)`
+
+- `File: src/Fsm/FireballDetectAction.cs`
+  - `public sealed class FireballDetectAction : FsmStateAction`
+    - 属性签名：
+      - `public Action? OnFireballCast { get; set; }`
+    - 方法签名：
+      - `public override void OnEnter()`
+    - 约束：行为保持不变，只从主文件拆出。
+
+### 3.1.1 调用链与职责边界
+- `DeVectMod.Initialize(...)`
+  - 注册 Hook。
+  - 创建或重建 `OrbSystem`。
+- `DeVectMod.OnHeroUpdate()`
+  - 只做启停判断、获取 `HeroController.instance`、转发到 `OrbSystem.OnHeroUpdate(...)`。
+- `DeVectMod.OnSlashHit(...)`
+  - 只做敌人命中前置判断、转发到 `OrbSystem.OnSlashHit(...)`。
+- `FireballDetectAction.OnEnter()`
+  - 只负责检测发波输入，不含球逻辑。
+- `OrbSystem.OnFireballCast()`
+  - 若未满：根据 `OrbDefinitionRegistry.GetDefaultTypeForFireball()` 生成一个新球。
+  - 若已满：调用 `OrbRuntime.TryForceInsertOrbFromLeft(...)`，获取被挤出球实例，并调用其 `Definition.OnEvocation(...)`。
+- `OrbSystem.TriggerPassiveOrbs(...)`
+  - 遍历 `OrbRuntime.EnumerateActiveOrbs()`。
+  - 逐球调用 `orb.Definition.OnPassive(context, orb)`。
+- `YellowOrbDefinition.OnPassive(...)`
+  - 通过 `context.Combat.TryPickRandomEnemyInRange(...)` 和 `TryDealOrbDamage(...)` 完成当前黄球被动。
+  - 伤害成功后通过 `context.Visuals.SpawnLightningVisual(...)` 触发闪电。
+- `OrbRuntime`
+  - 不关心“为什么这个球要触发”；只关心球在槽位里的存在和运动。
+
+### 3.1.2 文件拆分计划
+- `DeVect.cs`
+  - 保留：`DeVectSettings`、`DeVectMod`。
+  - 移出：`FireballDetectAction`、`OrbRuntime`、`OrbSlotRuntime`、`TransientVisual`、全部球战斗/视觉/定义逻辑。
+- 新增文件：
+  - `src/Orbs/OrbSystem.cs`
+  - `src/Orbs/OrbSystemDependencies.cs`
+  - `src/Orbs/OrbPersistentState.cs`
+  - `src/Orbs/OrbTriggerContext.cs`
+  - `src/Orbs/Definitions/OrbTypeId.cs`
+  - `src/Orbs/Definitions/IOrbDefinition.cs`
+  - `src/Orbs/Definitions/YellowOrbDefinition.cs`
+  - `src/Orbs/Definitions/OrbDefinitionRegistry.cs`
+  - `src/Orbs/Runtime/OrbRuntime.cs`
+  - `src/Orbs/Runtime/OrbInstance.cs`
+  - `src/Orbs/Runtime/OrbInstanceSnapshot.cs`
+  - `src/Orbs/Runtime/OrbSlotRuntime.cs`
+  - `src/Combat/OrbCombatService.cs`
+  - `src/Visual/OrbVisualService.cs`
+  - `src/Visual/TransientVisual.cs`
+  - `src/Fsm/FireballDetectAction.cs`
+
+### 3.1.3 兼容性约束
+- 黄球现有行为必须保持一致：
+  - 常规填充顺序仍为 `右 -> 中 -> 左`。
+  - 三球已满后再次 fireball 仍为“左插入，新左出现，左/中右移，右球被挤出后触发激发”。
+  - 被动仍为“骨钉累计每 3 次触发一次，当前每个已存在黄球各触发一次”。
+  - 搜敌范围、伤害倍率、闪电位置、退出清理与场景切换保留语义不变。
+- 本次不改变菜单、模组名、版本号、`DeVectSettings` 字段结构。
+- 本次不要求黑球、白球有具体实现，但必须能在类型系统中注册。
+
+### 3.1.4 持久化约束
+- 原 `_persistedFilledSlots` 废弃，替换为 `OrbPersistentState.FilledOrbSequence`。
+- 场景切换时，`OrbRuntime.SuspendAndRemember(...)` 必须按槽位顺序写回球种序列。
+- 场景重建时，`OrbRuntime.EnsureBuilt(...)` 必须根据序列恢复相同数量与球种。
+- 当前只有黄球时，序列示例：`[Yellow, Yellow, Yellow]`。
+
+### 3.1.5 构建与命名约束
+- 命名空间统一保持 `DeVect`，必要时采用子命名空间：
+  - `DeVect.Orbs`
+  - `DeVect.Orbs.Definitions`
+  - `DeVect.Orbs.Runtime`
+  - `DeVect.Combat`
+  - `DeVect.Visual`
+  - `DeVect.Fsm`
+- 不修改 `DeVect.csproj` 的目标框架与外部引用。
+- 所有新增文件默认使用 ASCII；不引入额外 NuGet 包。
+
+### 3.2 Implementation Checklist
+- [x] 1. 将 `DeVectMod` 改为薄入口，移除球业务逻辑与运行时实现，仅保留 Hook、设置、生命周期转发。
+- [x] 2. 新增 `src/Fsm/FireballDetectAction.cs`，从 `DeVect.cs` 拆出 FSM 动作，行为保持不变。
+- [x] 3. 新增 `src/Orbs/Definitions/OrbTypeId.cs`、`IOrbDefinition.cs`、`YellowOrbDefinition.cs`、`OrbDefinitionRegistry.cs`，建立球种定义层。
+- [x] 4. 新增 `src/Orbs/OrbTriggerContext.cs`，收敛球种能力执行上下文。
+- [x] 5. 新增 `src/Combat/OrbCombatService.cs`，迁移矩形索敌、伤害结算、方向计算、敌我识别逻辑。
+- [x] 6. 新增 `src/Visual/TransientVisual.cs` 与 `src/Visual/OrbVisualService.cs`，迁移闪电图、像素图、球体图、临时视觉生命周期管理。
+- [x] 7. 新增 `src/Orbs/Runtime/OrbInstance.cs`、`OrbInstanceSnapshot.cs`、`OrbSlotRuntime.cs`、`OrbRuntime.cs`，迁移槽位、跟随、填球、左插入、右挤出、动画与场景重建能力。
+- [x] 8. 新增 `src/Orbs/OrbPersistentState.cs`，把持久化模型从“填充数量”升级为“槽位球种序列”。
+- [x] 9. 新增 `src/Orbs/OrbSystemDependencies.cs` 与 `src/Orbs/OrbSystem.cs`，把 fireball、slash、hero update、scene change、shutdown 编排统一收敛到应用层。
+- [x] 10. 在 `DeVect.cs` 中接入 `OrbSystem`，将现有黄球逻辑迁移为通过 `YellowOrbDefinition` 执行，确保外部行为不变。
+- [x] 11. 完整回归以下行为：普通填球、三球满后挤出激发、3 次骨钉触发被动、随机索敌伤害、闪电生成、场景切换保留、退出时清理。
+- [x] 12. 运行 `dotnet build -c Debug`，若实现与 Spec 偏离，先更新 Spec 再继续修正代码。
+
+### 3.3 Execution Notes
+- 本次实现结果与 PLAN 一致，补充调整如下：
+  - `OrbSystemDependencies` 的属性使用 `set` 而非 `init`，以兼容当前 `net472` 目标框架并避免额外引入 `IsExternalInit` 兼容层。
+  - `DeVectMod` 继续保留在 `DeVect.cs`，未额外新建 `src/Mod/DeVectMod.cs`，以减少入口迁移风险；其职责已按计划薄化。
+  - `OrbVisualService` 统一托管闪电与被挤出球的临时视觉对象；`OrbRuntime` 不再直接维护临时特效列表。
+  - `OrbPersistentState` 当前按填充顺序保留球种序列，已满足单球种到多球种结构升级的最小闭环。
+
+### 3.4 Verification
+- `dotnet build -c Debug`: 成功，0 error，0 warning。

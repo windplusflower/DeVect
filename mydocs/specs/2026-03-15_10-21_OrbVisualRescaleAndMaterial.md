@@ -1,0 +1,372 @@
+# SDD Spec: 黄球尺寸、材质与扇形圆弧轨迹及波改球
+
+## 0. 🚨 Open Questions (MUST BE CLEAR BEFORE CODING)
+- None
+
+## 1. Requirements (Context)
+- **Goal**: 继续优化黄球围绕小骑士的排布与动效：将三球排布明确收敛为“以小骑士为圆心的扇形”，在现有基础上进一步增大扇形展开弧度、缩短黄球与小骑士之间的半径距离，并继续增强槽位移动时的弧线感，让整体观感更贴近“围绕角色展开”的设计语义。
+- **In-Scope**:
+  - 梳理黄球、虚线环、闪电特效对应的代码位置与尺寸控制参数。
+  - 识别黄球材质感可以落地的实现方式，例如渐变高光、描边、辉光叠层、电弧粒子感贴图或闪烁层。
+  - 识别“扇形”若存在时的角度/半径参数来源。
+  - 为后续 PLAN 固化可直接实施的文件改动点与常量。
+  - 调整虚线段透明度与宽高比例，让虚线球更轻、更细。
+  - 在运行时根据槽位占用状态切换虚线球可见性。
+  - 调整黄球槽位移动轨迹，从线性直线插值改为可控弧线插值。
+  - 把三球排布从“手工三点布局”收敛为“基于半径+角度推导出的扇形布局”。
+  - 继续增大三球左右展开角度，让扇形视觉更明显。
+  - 继续减小三球离小骑士的距离，让球环更贴近角色。
+  - 继续单独放大黄色实体球，但不再调整虚线球尺寸。
+  - 让普通新生成球与被挤出激发球也统一遵循弧线轨迹。
+  - 所有球的运动轨迹必须共用同一条圆弧语义，视觉上可以拼成围绕小骑士的完整圆弧。
+  - 拦截小骑士释放平波（Vengeful Spirit / Shade Soul）的原始施法结果，使“放波”改为“放球”。
+  - 保留现有以波触发黄球生成/挤出激发的语义，但不再真的发射波弹体。
+- **Out-of-Scope**:
+  - 暂不直接修改伤害、索敌、触发频率等战斗逻辑。
+  - 暂不修改与黄球无关的其他球种视觉。
+  - 不修改黄球触发、伤害、索敌、持续时间等战斗逻辑。
+  - 暂不拦截上波、下波与黑波以外的其他法术。
+
+## 1.5 Code Map (Project Topology)
+- **Core Logic**:
+  - `src/Orbs/Runtime/OrbRuntime.cs`: 黄球本体实例化入口；`YellowOrbScale`、`EvictedOrbScale` 是黄球主球尺寸的直接控制常量。
+  - `src/Orbs/Runtime/OrbRuntime.cs`: `EnsureBuilt(...)` 为每个槽位创建容器，并调用 `_visualService.BuildDashedRing(...)` 构建虚线环。
+  - `src/Orbs/Runtime/OrbRuntime.cs`: `SlotLocalPositions` 当前仍是静态三点坐标，而不是由“小骑士圆心 + 半径 + 角度”推导，因此“扇形语义”只是在视觉上近似成立。
+  - `src/Orbs/Runtime/OrbRuntime.cs`: `EvaluateArcPosition(...)` 负责黄球换位/插入时的弧线轨迹；当前抬升量为 `Mathf.Max(0.16f, (horizontalDistance * 0.22f) + (verticalDistance * 0.12f))`。
+  - `src/Orbs/Runtime/OrbRuntime.cs`: `TrySpawnOrbInSlot(...)` 当前直接把新球放到目标槽位，没有普通生成时的入场弧线。
+  - `src/Orbs/Runtime/OrbRuntime.cs`: `StartEvictedOrbAnimation(...)` 当前仍通过 `TransientVisual` 的线性 `Velocity` 驱动，被挤出球不会走弧线。
+  - `src/Orbs/Runtime/OrbRuntime.cs`: 当前 `EvaluateArcPosition(...)` 采用“中点上抬”的局部曲线，这种算法不能保证不同球轨迹共圆。
+  - `src/Orbs/Runtime/OrbRuntime.cs`: `StartSlotMove(...)` 当前只更新目标角度，没有从占用球当前真实位置反推起始角度；当球从一个槽位迁移到另一个槽位时，可能导致 `CurrentAngleDeg` 仍停留在目标槽或旧槽缓存值，进而出现“看起来没有移动”的假象。
+  - `src/Orbs/Runtime/OrbRuntime.cs`: `StartEvictedOrbAnimation(...)` 当前直接复用被挤出球原始 `GameObject` 做飞离动画，因此视觉上会出现“右侧黄球本体 + 一个分离虚影飞走”的误读风险。
+  - `src/Fsm/FireballDetectAction.cs`: 当前只是检测中性波输入并调用 `OnFireballCast`，不会阻止原 FSM 后续继续执行真正的放波逻辑。
+  - `DeVect.cs`: `InjectFireballDetector(...)` 只是把 `FireballDetectAction` 插在 `Spell Choice` / `QC` 状态前面；当前链路只做“额外生成球”，不是“拦截放波”。
+  - `src/Orbs/OrbSystem.cs`: `OnFireballCast()` 已经封装了“空位生成球 / 满三球则挤出激发”的核心业务语义，是“放波改放球”的直接复用入口。
+  - `src/Visual/OrbVisualService.cs`: `BuildDashedRing(Transform parent)` 负责虚线环；`DashedRingRadius = 0.18f` 控制虚线环半径，`DashScale = 0.06f` 控制单段虚线尺寸，`DashCount = 14` 控制分段密度。
+  - `src/Visual/OrbVisualService.cs`: `CreateOrbRenderer(string name, Color color)` 负责创建黄球的 `SpriteRenderer`；当前仅使用纯色圆形贴图 `CreateCircleSprite()`，没有任何高光、法线、辉光或电感叠层。
+  - `src/Visual/OrbVisualService.cs`: `CreateCircleSprite()` 当前生成的是纯白实心圆贴图，贴图内容无渐变，材质质感完全依赖 `renderer.color`，因此黄球目前视觉上偏平。
+  - `src/Visual/OrbVisualService.cs`: `SpawnLightningVisual(Vector3 worldPosition)` 与 `CreateLightningSprite()` 是黄球触发时的带电反馈实现，可作为“带电感”的辅助视觉，但不作用于常驻黄球本体。
+- **Entry Points**:
+  - `src/Orbs/Definitions/YellowOrbDefinition.cs`: `OnPassive(...)` 与 `OnEvocation(...)` 是黄球能力触发入口，命中后会调用视觉层生成闪电表现。
+  - `src/Orbs/OrbSystem.cs`: `OnFireballCast()` 负责生成黄球；`OnHeroUpdate(...)` 驱动黄球位置跟随与动画刷新。
+- **Data Models**:
+  - `src/Orbs/Runtime/OrbInstance.cs`: 黄球实例持有 `SpriteRenderer`，但当前没有额外材质或子视觉层字段。
+  - `src/Visual/TransientVisual.cs`: 短时视觉对象模型，可复用于电流闪烁、辉光残影等临时特效；当前只有线性速度模型，没有弧线轨迹参数。
+- **Dependencies**:
+  - `UnityEngine.SpriteRenderer`: 当前黄球、虚线环、闪电图标全部基于该组件。
+  - `assets/闪电.png`: 已存在的闪电贴图资源，可继续作为“带电感”延展的资源参考。
+- **Observed Reality**:
+  - 当前三槽坐标是 `(-1.05, 1.72)`、`(0, 1.92)`、`(1.05, 1.72)`，表现为较浅的上方弧线，但严格来说不是“以小骑士为圆心”的扇形解法。
+  - 当前黄球尺寸由 `src/Orbs/Runtime/OrbRuntime.cs` 中 `YellowOrbScale = 0.34f` 决定。
+  - 当前虚线环外轮廓由 `src/Visual/OrbVisualService.cs` 中 `DashedRingRadius = 0.225f` 与 `DashScale = 0.086f` 共同决定；从几何关系看，单球尺度已放大，但整体排布仍偏上、扇形展开感仍不够强。
+  - 当前黄球视觉是单层纯色圆，没有立体高光、边缘过渡、内发光、扰动或电弧层，因此“立体感/带电感”尚未实现。
+  - 用户已确认“扇形”指的是三个虚线球的整体排布，而不是单独的 Mesh/扇区对象；因此对应代码位置不是独立扇形组件，而是 `src/Orbs/Runtime/OrbRuntime.cs` 中的 `SlotLocalPositions` 三个槽位坐标。
+  - 用户已确认“增大黄球和虚线球的大小”是同时调整黄色实体球与外层虚线环，而不是只改其中一个。
+  - `src/Orbs/Runtime/OrbSlotRuntime.cs` 的 `Anchor` 正是单个虚线球容器；`BuildDashedRing(...)` 创建的虚线段全部挂在 `Anchor` 下，因此“有黄球填充时隐藏虚线球”可以通过槽位级可见性切换实现，无需改动黄球实例结构。
+  - `src/Orbs/Runtime/OrbRuntime.cs` 的 `TickAnimations(float deltaTime)` 当前使用 `Vector3.Lerp(slot.CurrentLocalPosition, slot.TargetLocalPosition, eased)`，这意味着黄球换位和插入动画现在一定是直线轨迹。
+  - 当前代码已经不再使用 `Vector3.Lerp(...)`，而是通过 `EvaluateArcPosition(...)` 做二次曲线插值；但根据用户反馈，当前弧线抬升仍偏保守，肉眼观感“弧度有些太小”。
+  - 用户最新截图反馈表明：当前黄球实体仍可继续放大，但虚线球尺寸已经合适，无需继续调大。
+  - 当前只有槽位换位/左侧强插进入球遵循弧线，普通生成球和被挤出球的运动语义还不统一。
+  - 用户最新截图确认：当前问题本质是“轨迹模型错误”，目标应为共圆圆弧，而不是多条彼此独立的抛物线/贝塞尔。
+  - 最新运行结果显示：中间球和右边球在换位时没有显式沿圆弧移动，说明当前角度插值起点取值不正确。
+  - 最新运行结果显示：左边位置会先空一下，再从左下补入一个新球，说明“新插入球入场”和“旧球换位”时间关系正确，但旧球换位动画缺失。
+  - 最新运行结果显示：右侧被挤出球表现成“本体旁边分出一个往右下消失的虚影”，说明当前飞离实现需要与槽位占用切换进一步解耦，避免玩家把飞离对象误认成残影而不是被挤出的实体球。
+  - 当前平波链路是“检测到放波 -> 额外生成球 -> 原始波照常发出”；用户新需求要求把它改成“检测到放波 -> 直接转球 -> 原始波不再发出”。
+
+## 2. Architecture (Optional - Populated in INNOVATE)
+- 本任务不需要进入 INNOVATE；直接进入 PLAN。
+
+## 3. Detailed Design & Implementation (Populated in PLAN)
+### 3.1 Data Structures & Interfaces
+- `File: src/Orbs/Runtime/OrbRuntime.cs`
+  - 调整槽位布局定义：
+    - 删除/替换静态数组：`private static readonly Vector3[] SlotLocalPositions`
+    - 新增常量：
+      - `private const float SlotFanRadius = 1.62f`
+      - `private const float SlotFanCenterAngleDeg = 90f`
+      - `private const float SlotFanSpreadDeg = 38f`
+    - 新增方法签名：
+      - `private static Vector3[] BuildSlotLocalPositions()`
+      - `private static Vector3 EvaluateSlotPosition(float angleDeg, float radius)`
+    - 固定结果约束：
+      - 左槽角度 = `SlotFanCenterAngleDeg + SlotFanSpreadDeg`
+      - 中槽角度 = `SlotFanCenterAngleDeg`
+      - 右槽角度 = `SlotFanCenterAngleDeg - SlotFanSpreadDeg`
+      - 三个槽位必须以 `Vector3.zero` 为极坐标圆心推导，表达“小骑士为圆心”的扇形语义。
+      - 目标落点应接近以下数值（允许浮点计算误差）：
+        - 左槽：`new(-1.00f, 1.28f, 0f)`
+        - 中槽：`new(0f, 1.62f, 0f)`
+        - 右槽：`new(1.00f, 1.28f, 0f)`
+    - `private const float YellowOrbScale`
+      - 需要继续单独放大实体黄球。
+      - 本轮固定目标值：`0.42f`
+    - `private const float EvictedOrbScale`
+      - 与 `YellowOrbScale` 保持一致，固定为 `0.42f`。
+    - 调整弧线轨迹参数：
+      - 替换方法语义：`private static Vector3 EvaluateArcPosition(Vector3 start, Vector3 end, float t)` 不再使用“中点上抬”方案，改为圆弧角度插值包装层或被新的圆弧方法替代。
+      - 新增方法签名：
+        - `private static Vector3 EvaluateArcPoint(float angleDeg, float radius)`
+        - `private static float GetSlotAngleDeg(int slotIndex)`
+        - `private static float NormalizeAngleDelta(float fromDeg, float toDeg)`
+        - `private static Vector3 EvaluateCircularArcPosition(float startAngleDeg, float endAngleDeg, float radius, float t)`
+        - `private static float GetAngleDegFromPosition(Vector3 localPosition)`
+      - 新轨迹约束：
+        - 所有槽位静止点和运动中的插值点，都必须由“角度 + 半径”直接计算。
+        - 槽位换位时半径固定为 `SlotFanRadius`，只改变角度。
+        - 普通新生成球必须从同一圆弧更靠左的角度起步，再沿圆弧进入目标槽位。
+        - 被挤出激发球必须沿同一圆弧继续向右侧角度延展飞离。
+        - 任意时刻截图，多颗球位置应可近似落在同一圆周上。
+        - 换位球的起始角度必须从 `Renderer.transform.localPosition` 实时反推，不能使用槽位缓存角度直接代替。
+  - 新增私有方法签名：
+    - `private static void SetDashedRingVisible(OrbSlotRuntime slot, bool visible)`
+    - `private static void RefreshSlotVisual(OrbSlotRuntime slot)`
+    - `private float GetSpawnEntryStartAngleDeg(int slotIndex)`
+    - `private void StartSpawnEntry(OrbSlotRuntime slot, int slotIndex)`
+  - 保留方法签名：
+    - `public void EnsureBuilt(Transform heroTransform, IReadOnlyList<OrbTypeId> persistedTypes, OrbDefinitionRegistry definitions)`
+    - `public bool TryForceInsertOrbFromLeft(OrbTypeId newTypeId, OrbDefinitionRegistry definitions, out OrbInstance? evictedOrb)`
+    - `private bool TrySpawnOrbInSlot(int slotIndex, OrbTypeId typeId, OrbDefinitionRegistry definitions)`
+  - 实现约束：
+    - 空槽位显示虚线球，占用槽位隐藏虚线球。
+    - 切场景、恢复运行时、插入新球、挤出旧球后，虚线球可见性都必须与槽位状态一致。
+    - 槽位布局必须显式表达“角色圆心 + 半径 + 角度”的几何关系，不能继续只保留一组无语义的硬编码散点坐标。
+    - 所有球的运动必须改为共圆角度插值，不能继续使用局部贝塞尔/抛物线抬升方案。
+    - 普通新生成球不能直接闪现到槽位，必须从同一圆弧上的更左侧角度起步，并沿圆弧进入目标槽位。
+    - 被挤出激发的球不能再沿固定速度直线飞出，必须沿同一圆弧继续向右延展。
+    - 槽位换位时，中球->右球、左球->中球都必须可见地移动，不能因为起始角缓存错误而直接停在终点。
+    - 被挤出飞离对象必须在视觉上就是“被挤出的那颗球本体”，不能出现看似从静止球旁边分离出虚影的误读。
+
+- `File: src/Fsm/FireballDetectAction.cs`
+  - 调整对外接口：
+    - 保留 `public Action? OnFireballCast { get; set; }`
+    - 新增 `public Func<bool>? ShouldConsumeSpell { get; set; }`
+  - 行为约束：
+    - 当检测到中性波输入时，先调用 `ShouldConsumeSpell`。
+    - 若返回 `true`，则必须阻断当前状态后续原始放波动作执行。
+    - 阻断原始放波时，必须手动扣除本次平波蓝耗，并同步魂 UI，避免出现“免费放球”。
+    - 若返回 `false`，则保持原 FSM 行为不变。
+    - 不影响上波/下砸等非中性输入分支。
+
+- `File: DeVect.cs`
+  - 调整注入方案：
+    - `InjectFireballDetector(PlayMakerFSM fsm, string stateName)` 仍负责在 `Spell Choice` / `QC` 两个状态首部注入检测动作。
+    - 注入时同时赋值：
+      - `OnFireballCast = HandleFireballCast`
+      - `ShouldConsumeSpell = ShouldConsumeFireballSpell`
+  - 新增方法签名：
+    - `private bool ShouldConsumeFireballSpell()`
+  - 行为约束：
+    - `ShouldConsumeFireballSpell()` 仅在模组启用、未关机、且 orb 系统允许处理时返回 `true`。
+    - 返回 `true` 的语义不是“额外生成球”，而是“这次平波由 DeVect 接管，原波应被取消”。
+    - 被取消的原波蓝耗必须仍然成立，不可变成无消耗放球。
+
+- `File: src/Orbs/OrbSystem.cs`
+  - 保留方法签名：
+    - `public void OnFireballCast()`
+  - 新增方法签名：
+    - `public bool ShouldConsumeFireballSpell()`
+  - 行为约束：
+    - `ShouldConsumeFireballSpell()` 只做可处理性判断，不直接改运行时。
+    - `OnFireballCast()` 继续复用当前“放球”业务语义：空槽补球、满槽挤出激发、同步持久态。
+    - 这样可以把“是否拦截波”与“如何生成球”解耦。
+
+- `File: src/Visual/TransientVisual.cs`
+  - 新增字段：
+    - `public bool UseArcMotion { get; set; }`
+    - `public Vector3 StartPosition { get; set; }`
+    - `public Vector3 EndPosition { get; set; }`
+    - `public float ArcHeight { get; set; }`
+  - 兼容性约束：
+    - 现有构造函数继续保留，供闪电视觉等线性对象复用。
+    - 当 `UseArcMotion == false` 时，行为必须与当前版本完全一致。
+    - 当 `UseArcMotion == true` 时，必须支持“固定半径 + 角度插值”的圆弧更新模式。
+
+- `File: src/Visual/OrbVisualService.cs`
+  - 保留方法签名：
+    - `public void TickTransientVisuals(float deltaTime)`
+  - 实现约束：
+    - 在刷新短时视觉时，若 `TransientVisual.UseArcMotion` 为 `true`，则按归一化生命周期执行圆弧角度插值，位置由半径和角度实时计算。
+    - 闪电特效仍保持原有线性上浮，不受弧线分支影响。
+
+- `File: src/Visual/OrbVisualService.cs`
+  - 调整常量：
+    - `private const float DashedRingRadius`
+      - 需要增大单个虚线球的包围尺度。
+      - 本轮固定目标值：`0.225f`
+    - `private const float DashScale`
+      - 需要增大，使虚线段随整体放大保持清晰度与存在感。
+      - 本轮固定目标值：`0.086f`
+    - `private const float DashThicknessFactor`
+      - 需要降低，使虚线段更细。
+      - 本轮固定目标值：`0.32f`
+    - `private static readonly Color DashColor`
+      - 需要降低透明度，使虚线球更淡。
+      - 本轮固定目标值：`new(1f, 1f, 1f, 0.55f)`
+  - 保留方法签名：
+    - `public void BuildDashedRing(Transform parent)`
+    - `public SpriteRenderer CreateOrbRenderer(string name, Color color)`
+  - 新增私有方法签名：
+    - `private static void AddOrbMaterialLayers(Transform parent, Color baseColor)`
+    - `private static SpriteRenderer CreateLayerRenderer(Transform parent, string name, Sprite sprite, Color color, int sortingOrder, Vector3 localPosition, Vector3 localScale)`
+    - `private static Color GetElectricAuraColor(Color baseColor)`
+    - `private static Color GetInnerGlowColor(Color baseColor)`
+    - `private static Color GetHighlightColor(Color baseColor)`
+    - `private static Sprite CreateElectricAuraSprite()`
+    - `private static Sprite CreateHighlightSprite()`
+  - 新增私有实现约束：
+    - `CreateOrbRenderer(...)` 创建的黄球不再是单层纯色球；需要升级为“主球 + 高光/内发光/电感层”的组合视觉，且对外仍返回主 `SpriteRenderer`，避免影响现有调用链。
+    - 黄球材质增强必须通过运行时生成贴图或子对象叠层实现，不引入新的复杂资源依赖。
+    - 带电感应表现为常驻轻微电感光晕/边缘扰动感，不能替代已有的命中闪电特效。
+    - 主球贴图改为程序生成的伪球体渐变贴图，边缘略暗、中心更亮，形成体积感。
+    - 新增至少三层常驻叠层：外层电感辉光、内层暖色发光、左上高光斑。
+
+### 3.2 Implementation Checklist
+- [x] 1. 更新 `mydocs/specs/2026-03-15_10-21_OrbVisualRescaleAndMaterial.md`，固化“扇形=三个虚线球排布”与“黄球/虚线球同步放大”的语义。
+- [x] 2. 修改 `src/Orbs/Runtime/OrbRuntime.cs`，重新设定 `SlotLocalPositions`，增大三球扇形角度并缩小整体排布半径。
+- [x] 3. 修改 `src/Orbs/Runtime/OrbRuntime.cs`，增大 `YellowOrbScale` 与 `EvictedOrbScale`，使黄球与虚线环视觉比例更协调。
+- [x] 4. 修改 `src/Visual/OrbVisualService.cs`，调整 `DashedRingRadius` 与 `DashScale`，让单个虚线球更大但包围半径更紧。
+- [x] 5. 修改 `src/Visual/OrbVisualService.cs`，为黄球增加立体高光、内发光和带电感叠层，实现更有体积感的常驻材质表现。
+- [x] 6. 构建工程，验证编译通过且运行期接口未受破坏。
+- [ ] 7. 修改 `src/Orbs/Runtime/OrbRuntime.cs`，进一步增大扇形角度并继续放大黄球尺寸。
+- [ ] 8. 修改 `src/Visual/OrbVisualService.cs`，继续放大虚线球，同时把虚线段做得更细、更淡。
+- [ ] 9. 修改 `src/Orbs/Runtime/OrbRuntime.cs`，让槽位被黄球占用时隐藏对应虚线球，空槽位再显示。
+- [ ] 10. 构建工程，验证编译通过且运行期接口未受破坏。
+- [x] 11. 修改 `src/Visual/OrbVisualService.cs`，进一步把虚线段收细到更轻的占位感。
+- [x] 12. 修改 `src/Orbs/Runtime/OrbRuntime.cs`，将三球扇形半径继续缩小一档，同时保持整体对称与层次。
+- [x] 13. 修改 `src/Orbs/Runtime/OrbRuntime.cs`，把黄球槽位移动轨迹从直线插值改为弧线插值。
+- [x] 14. 构建工程，验证新的视觉与动效调整编译通过。
+- [x] 15. 更新 `mydocs/specs/2026-03-15_10-21_OrbVisualRescaleAndMaterial.md`，把“以小骑士为圆心的扇形、更大弧度、更近半径”固化为新的实现约束。
+- [x] 16. 修改 `src/Orbs/Runtime/OrbRuntime.cs`，将三槽布局从静态三点坐标重构为基于半径与角度推导的扇形坐标。
+- [x] 17. 修改 `src/Orbs/Runtime/OrbRuntime.cs`，把三球目标位置调近到以角色为圆心、半径约 `1.62f` 的扇形上。
+- [x] 18. 修改 `src/Orbs/Runtime/OrbRuntime.cs`，提升 `EvaluateArcPosition(...)` 的抬升幅度，让换位/插入轨迹弧度更明显。
+- [x] 19. 构建工程，验证编译通过且运行期接口未受破坏。
+- [x] 20. 更新 `mydocs/specs/2026-03-15_10-21_OrbVisualRescaleAndMaterial.md`，固化“只放大黄球、普通入场球和被挤出球都走弧线”的约束。
+- [x] 21. 修改 `src/Orbs/Runtime/OrbRuntime.cs`，把 `YellowOrbScale` 与 `EvictedOrbScale` 提升到 `0.38f`，仅放大实体黄球。
+- [x] 22. 修改 `src/Orbs/Runtime/OrbRuntime.cs`，为普通新生成球补充入场起点和弧线进入动画。
+- [x] 23. 修改 `src/Visual/TransientVisual.cs` 与 `src/Visual/OrbVisualService.cs` 及 `src/Orbs/Runtime/OrbRuntime.cs` 调用，让被挤出激发的球支持弧线飞出轨迹。
+- [x] 24. 构建工程，验证编译通过且运行期接口未受破坏。
+- [x] 25. 更新 `mydocs/specs/2026-03-15_10-21_OrbVisualRescaleAndMaterial.md`，把“所有球轨迹共圆、能拼成完整圆弧、黄球继续放大”固化为新的约束。
+- [x] 26. 修改 `src/Orbs/Runtime/OrbRuntime.cs`，移除当前基于中点上抬的局部弧线插值，改为基于半径与角度的圆弧插值。
+- [x] 27. 修改 `src/Orbs/Runtime/OrbRuntime.cs`，让普通生成球、槽位换位球、强插进入球共用同一圆弧轨迹模型。
+- [x] 28. 修改 `src/Visual/TransientVisual.cs` 与 `src/Visual/OrbVisualService.cs`，让被挤出激发球也基于同一圆弧半径做角度延展飞离。
+- [x] 29. 修改 `src/Orbs/Runtime/OrbRuntime.cs`，把实体黄球尺寸继续提升到 `0.42f`，虚线球参数保持不变。
+- [x] 30. 构建工程，验证编译通过且运行期接口未受破坏。
+- [x] 31. 更新 `mydocs/specs/2026-03-15_10-21_OrbVisualRescaleAndMaterial.md`，记录“换位球不动、左槽先空、右侧出现虚影”的最新运行现实，并固化修复约束。
+- [x] 32. 修改 `src/Orbs/Runtime/OrbRuntime.cs`，让槽位换位起始角从球当前真实位置反推，确保中球和右球沿圆弧实际运动。
+- [x] 33. 修改 `src/Orbs/Runtime/OrbRuntime.cs`，校正被挤出球的飞离表达，避免视觉上像是从右侧静止球分裂出虚影。
+- [x] 34. 构建工程，验证修复后编译通过且运行期接口未受破坏。
+- [x] 35. 更新 `mydocs/specs/2026-03-15_10-21_OrbVisualRescaleAndMaterial.md`，固化“平波改放球、原波被拦截”的新需求。
+- [x] 36. 修改 `src/Orbs/OrbSystem.cs`，新增 `ShouldConsumeFireballSpell()`，用于判定当前平波是否由球系统接管。
+- [x] 37. 修改 `src/Fsm/FireballDetectAction.cs`，在检测到中性波输入时支持消费当前施法，并阻断原始放波动作。
+- [x] 38. 修改 `DeVect.cs`，让 FSM 注入同时绑定“生成球”和“拦截原波”的判定委托。
+- [x] 39. 构建工程，验证“放波变放球”链路编译通过且接口未受破坏。
+- [x] 7. 修改 `src/Orbs/Runtime/OrbRuntime.cs`，进一步增大扇形角度并继续放大黄球尺寸。
+- [x] 8. 修改 `src/Visual/OrbVisualService.cs`，继续放大虚线球，同时把虚线段做得更细、更淡。
+- [x] 9. 修改 `src/Orbs/Runtime/OrbRuntime.cs`，让槽位被黄球占用时隐藏对应虚线球，空槽位再显示。
+- [x] 10. 构建工程，验证编译通过且运行期接口未受破坏。
+
+### 3.3 Verification Criteria
+- 三个虚线球的排布应表现为更明显的扇形展开，而不是原先较收拢的三点布局。
+- 三球整体离小骑士更近，即扇形半径缩小。
+- 黄色实体球应至少接近单个虚线环的内径观感，并与放大后的虚线球保持协调。
+- 单个虚线球应比当前更大、更醒目。
+- 扇形角度相对上一版进一步增大。
+- 黄球和虚线球相对上一版进一步放大。
+- 虚线段应更细，且透明度更低，不再显得过重。
+- 当某个槽位已有黄球时，该槽位的虚线球应完全隐藏；空槽位才显示虚线球。
+- 虚线段应比上一版更细，整体更接近“辅助占位”而不是主视觉。
+- 三球整体应比上一版更靠近角色，即扇形半径再缩小一档。
+- 黄球在插入和换位时应沿弧线运动，肉眼可见不是直线平移。
+- 三个球的最终落点应能解释为“以小骑士为圆心、半径一致、角度对称”的扇形，而不是仅仅看起来像弧线。
+- 相比当前版本，三球整体应更贴近角色，上缘高度明显下降。
+- 相比当前版本，左右两侧球应更明显向两边展开，扇形张角更大。
+- 黄球在插入和换位时，轨迹最高点应明显高于当前版本，弧度观感更强。
+- 黄球实体应比当前版本再大一档，但虚线球尺寸与半径保持不变。
+- 普通新生成球应存在可见的入场过程，并沿弧线进入目标槽位。
+- 被挤出激发的球应沿弧线向右飞离，而不是固定直线平移。
+- 任意时刻截取多颗运动中的球，其轨迹应可解释为同一圆弧的一段，而不是不同抛物线的拼接。
+- 槽位换位球、普通入场球、被挤出球的路径应在视觉上连续，能够脑补成完整圆周的一部分。
+- 黄球实体应在当前 `0.38f` 基础上再增大一档到 `0.42f`，但虚线球保持不变。
+- 中球移向右槽、左球移向中槽时，必须肉眼可见有运动过程，不能原地不动。
+- 左槽补入新球之前，原左球必须先可见地离开左槽去往中槽，避免看起来像“左球突然消失后再凭空补球”。
+- 被挤出球飞离时，玩家应明确感知“右侧原球被带走”，而不是“右侧静止球旁出现一枚虚影飞走”。
+- 释放中性平波时，场上不应再出现原始波弹体，只应出现 DeVect 的放球结果。
+- 当槽位未满时，按当前规则补入一颗球；当槽位已满时，按当前规则挤出并激发一颗球。
+- 上波、下砸等非中性输入不应被本轮误拦截。
+- 被拦截的中性平波仍应消耗正常法术蓝量，并正确刷新魂 UI。
+- 黄球应具有明显立体感：至少可见高光、边缘明暗过渡或内发光层次。
+- 黄球应具有轻微带电感：至少可见电感色偏、边缘能量感或叠层辉光。
+- `dotnet build` 必须通过。
+
+### 3.4 Execution Notes
+- 后续 EXECUTE 时，优先采用“单个主球 + 至少两层子 SpriteRenderer 叠层”的方式做材质增强，这样对现有 `OrbInstance.Renderer` 结构侵入最小。
+- 扇形角度与半径的实现应优先通过 `SlotLocalPositions` 直接控制，不额外引入角度公式，避免偏离当前简洁结构。
+- 本轮实际执行将采用“主球 + 三层子 SpriteRenderer”方案，确保立体感和带电感同时具备。
+- 已将 `src/Orbs/Runtime/OrbRuntime.cs` 中三槽坐标改为 `(-0.98, 1.72)`、`(0, 2.02)`、`(0.98, 1.72)`；当前扇形更展开，同时整体更靠近角色。
+- 已将 `src/Orbs/Runtime/OrbRuntime.cs` 中 `YellowOrbScale` 与 `EvictedOrbScale` 同步提升到 `0.30f`。
+- 已将 `src/Visual/OrbVisualService.cs` 中 `DashedRingRadius` 提升到 `0.205f`、`DashScale` 提升到 `0.078f`，使单个虚线球更大、更醒目。
+- 已把黄球主贴图升级为程序生成的伪球体渐变贴图，并新增三层子渲染：外层电感辉光、内层暖色发光、左上高光斑。
+- 已完成 `dotnet build -c Debug` 构建验证：成功，`0` 警告、`0` 错误。
+- 本轮追加执行将进一步把三槽位外扩到 `(-1.18, 1.60)`、`(0, 1.97)`、`(1.18, 1.60)`，继续扩大扇形。
+- 本轮追加执行将把黄球尺寸提升到 `0.34f`，虚线球半径提升到 `0.225f`。
+- 本轮追加执行将把虚线段厚度系数收窄到 `0.42`，并把透明度降到 `0.55`。
+- 本轮追加执行将通过槽位级显示控制实现“有黄球填充时隐藏虚线球”。
+- 已将 `src/Orbs/Runtime/OrbRuntime.cs` 中三槽位更新为 `(-1.18, 1.60)`、`(0, 1.97)`、`(1.18, 1.60)`，扇形进一步外扩。
+- 已将 `src/Orbs/Runtime/OrbRuntime.cs` 中 `YellowOrbScale` 与 `EvictedOrbScale` 继续提升到 `0.34f`。
+- 已将 `src/Visual/OrbVisualService.cs` 中 `DashedRingRadius` 提升到 `0.225f`、`DashScale` 提升到 `0.086f`、`DashThicknessFactor` 收窄到 `0.42f`，并将 `DashColor` 透明度设为 `0.55f`。
+- 已在 `src/Orbs/Runtime/OrbRuntime.cs` 中新增槽位级虚线显示控制：占用槽位自动隐藏虚线球，空槽位自动显示。
+- 已完成本轮 `dotnet build -c Debug` 构建验证：成功，`0` 警告、`0` 错误。
+- 下一轮计划将把三槽位进一步收回到 `(-1.05, 1.72)`、`(0, 1.92)`、`(1.05, 1.72)`，以缩小扇形半径但保持足够展开角度。
+- 下一轮计划将把 `DashThicknessFactor` 进一步收窄到 `0.32f`，让虚线段更轻。
+- 下一轮计划将把槽位运动从 `Vector3.Lerp(...)` 直线插值升级为带中点抬升的弧线插值。
+- 已将 `src/Visual/OrbVisualService.cs` 中 `DashThicknessFactor` 进一步收窄到 `0.32f`，虚线段更细。
+- 已将 `src/Orbs/Runtime/OrbRuntime.cs` 中三槽位收回到 `(-1.05, 1.72)`、`(0, 1.92)`、`(1.05, 1.72)`，整体更靠近角色。
+- 已将 `src/Orbs/Runtime/OrbRuntime.cs` 中槽位移动从 `Vector3.Lerp(...)` 直线插值改为 `EvaluateArcPosition(...)` 弧线插值，采用中点上抬的二次曲线。
+- 已完成本轮 `dotnet build -c Debug` 构建验证：成功，`0` 警告、`0` 错误。
+- 用户最新反馈：当前三球排布需要更符合“以小骑士为圆心”的语义，不只是继续微调三点坐标。
+- 下一轮执行不再直接手调三点最终坐标，而是先引入“半径 + 中心角 + 展开角”三个常量，再由公式推导三个槽位落点。
+- 下一轮目标半径固定为 `1.62f`，相较当前版本进一步贴近角色。
+- 下一轮目标展开角固定为 `38` 度，使左右球相较当前版本明显外扩。
+- 下一轮将把 `EvaluateArcPosition(...)` 的最小抬升从 `0.16f` 提升到 `0.24f`，并同步提高水平/垂直位移系数，让弧线更明显。
+- 已将 `src/Orbs/Runtime/OrbRuntime.cs` 中的 `SlotLocalPositions` 改为 `BuildSlotLocalPositions()` 动态生成，不再直接硬编码三点散坐标。
+- 已新增 `SlotFanRadius = 1.62f`、`SlotFanCenterAngleDeg = 90f`、`SlotFanSpreadDeg = 38f`，三球排布语义正式收敛为“以小骑士为圆心的扇形”。
+- 实际推导落点约为左 `(-0.997, 1.277)`、中 `(0, 1.620)`、右 `(0.997, 1.277)`，相较上一版更贴近角色，同时左右展开更明显。
+- 已将 `EvaluateArcPosition(...)` 的抬升更新为 `Mathf.Max(0.24f, (horizontalDistance * 0.34f) + (verticalDistance * 0.18f))`，插入与换位轨迹弧度显著增强。
+- 已完成本轮 `dotnet build -c Debug` 构建验证：成功，`0` 警告、`0` 错误。
+- 用户基于技能瞬间截图提出新要求：黄球本体还可以更大，但虚线球尺寸保持不变。
+- 用户要求统一运动语义：普通新生成球、槽位换位球、被挤出激发球都必须遵循弧线轨迹。
+- 下一轮将把普通生成入口改为“先从角色左前方近身位置起步，再弧线收敛到目标槽位”。
+- 下一轮将扩展 `TransientVisual`，为被挤出球增加可选弧线运动字段，同时保持闪电等现有线性视觉对象不受影响。
+- 已将 `src/Orbs/Runtime/OrbRuntime.cs` 中 `YellowOrbScale` 与 `EvictedOrbScale` 同步提升到 `0.38f`，仅继续放大实体黄球，未修改虚线球参数。
+- 已为普通新生成球补上入场轨迹：从目标槽位左下近身偏移位置起步，沿现有弧线逻辑进入目标槽位。
+- 已为运行时恢复场景增加 `_suppressSpawnEntryAnimation`，避免持久化恢复时的已有球也执行入场动画。
+- 已扩展 `src/Visual/TransientVisual.cs`，新增可选弧线运动字段：`UseArcMotion`、`StartPosition`、`EndPosition`、`ArcHeight`。
+- 已在 `src/Visual/OrbVisualService.cs` 中为短时视觉刷新增加弧线分支：开启后按生命周期进度插值位置，并叠加抛物式上抬；未开启时保持原线性行为。
+- 已将 `src/Orbs/Runtime/OrbRuntime.cs` 中被挤出球的飞离轨迹改为右侧弧线飞出，终点偏移约为 `(+1.18, +0.12)`，弧高为 `0.42f`。
+- 已完成本轮 `dotnet build -c Debug` 构建验证：成功，`0` 警告、`0` 错误。
+- 用户最新纠偏：目标不是“每个动作都有点弧度”，而是“所有球的轨迹共同构成一条完整圆弧”。
+- 因此当前已实现的局部贝塞尔/抛物线方案在设计语义上判定为错误实现；后续执行必须先统一轨迹模型。
+- 下一轮将统一为“固定半径 + 角度插值”的圆弧运动模型：静止槽位、普通入场、槽位换位、被挤出飞离全部共圆。
+- 下一轮将把黄球尺寸从 `0.38f` 继续提升到 `0.42f`，不修改虚线球参数。
+- 已将 `src/Orbs/Runtime/OrbRuntime.cs` 中 `YellowOrbScale` 与 `EvictedOrbScale` 同步提升到 `0.42f`，虚线球参数保持不变。
+- 已为 `src/Orbs/Runtime/OrbSlotRuntime.cs` 增加角度与运动半径状态：`CurrentAngleDeg`、`TargetAngleDeg`、`MotionRadius`、`MotionDuration`，供共圆轨迹插值使用。
+- 已将 `src/Orbs/Runtime/OrbRuntime.cs` 中槽位运动从“局部位置贝塞尔”切换为“固定半径 + 角度插值”模型，统一由 `EvaluateCircularArcPosition(...)` 计算。
+- 已将普通生成球与强插进入球统一为从更左侧起始角度沿同一圆弧进入目标槽位，起始角偏移为 `+24` 度。
+- 已扩展 `src/Visual/TransientVisual.cs`，新增 `ArcCenter`、`ArcRadius`、`StartAngleDeg`、`EndAngleDeg`，用于世界坐标下的共圆飞行动画。
+- 已将 `src/Visual/OrbVisualService.cs` 中 `UseArcMotion` 分支改为优先执行圆弧角度插值；仅在未提供圆弧半径时，才回退到旧的抛物线位置插值兼容逻辑。
+- 已将被挤出激发球改为以当前球环中心为 `ArcCenter`，沿同一半径向右继续转过 `-28` 度后飞离，因此截图中多球轨迹可拼成同一圆弧。
+- 已完成本轮 `dotnet build -c Debug` 构建验证：成功，`0` 警告、`0` 错误。
+- 最新实机反馈表明：当前共圆模型的核心偏差不在目标角度，而在“起始角状态同步”与“被挤出实体的视觉归属”。
+- 下一轮修复会优先让 `StartSlotMove(...)` 基于球当前真实位置反推起始角，确保换位球可见地沿圆弧运动。
+- 下一轮修复会重新校正被挤出球的飞离表达，避免右侧静止球旁边出现类似残影/虚影的误读。
+- 已在 `src/Orbs/Runtime/OrbRuntime.cs` 中新增 `GetAngleDegFromPosition(Vector3 localPosition)`，并在 `StartSlotMove(...)` 启动时从 `Renderer.transform.localPosition` 实时反推起始角度。
+- 修复后，中球->右槽、左球->中槽不再依赖槽位缓存角度，而是从球当前真实落点出发做圆弧角度插值。
+- 已将被挤出球的圆弧半径改为基于实际世界坐标偏移 `localOffset.magnitude` 计算，而不是固定复用 `SlotFanRadius`，减少与右侧接替球的视觉重叠。
+- 已为被挤出球补充真实 `EndPosition`，并继续沿当前圆弧向右侧目标角度飞离，使其更像“原球本体被带走”。
+- 已完成修复后 `dotnet build -c Debug` 构建验证：成功，`0` 警告、`0` 错误。
+- 用户新增功能需求：中性平波不再真正发射，而是被拦截并转换为 DeVect 的放球行为。
+- 本轮实现优先复用已有 `OnFireballCast()` 业务语义，不重写放球规则，只补上“消费原始平波动作”的链路。
+- 已在 `src/Orbs/OrbSystem.cs` 中新增 `ShouldConsumeFireballSpell()`，统一对外暴露“当前是否由球系统接管平波”的判定。
+- 已在 `src/Fsm/FireballDetectAction.cs` 中新增 `ShouldConsumeSpell`；当检测到中性波且判定接管时，会执行 `OnFireballCast()`、手动扣蓝、发送 `FSM CANCEL`、阻断原始波逻辑。
+- 当前手动蓝耗与魂 UI 刷新采用 `PlayerData.TakeMP(...)` 与 `GameCameras.instance?.soulOrbFSM?.SendEvent("MP LOSE")`，避免出现“免费放球”。
+- 已在 `DeVect.cs` 的 FSM 注入链路中同时绑定 `HandleFireballCast` 与 `ShouldConsumeFireballSpell`，使“平波改放球”正式生效于 `Spell Choice` / `QC`。
+- 已完成本轮 `dotnet build -c Debug` 构建验证：成功，`0` 警告、`0` 错误。

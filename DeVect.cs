@@ -1,5 +1,9 @@
 using System;
 using System.Collections.Generic;
+using DeVect.Combat;
+using DeVect.Fsm;
+using DeVect.Orbs;
+using HutongGames.PlayMaker;
 using Modding;
 using UnityEngine;
 
@@ -12,9 +16,13 @@ public class DeVectSettings
     public int MinBaseHealth = 5;
 }
 
-public class DeVectMod : Mod, IGlobalSettings<DeVectSettings>, IMenuMod, ITogglableMod
+public partial class DeVectMod : Mod, IGlobalSettings<DeVectSettings>, IMenuMod, ITogglableMod
 {
     private DeVectSettings _settings = new();
+    private OrbSystem? _orbSystem;
+    private OrbPersistentState _persistentState = new();
+    private int _lastKnownNailDamage;
+    private bool _isShuttingDown;
 
     public DeVectMod() : base("DeVect")
     {
@@ -24,13 +32,28 @@ public class DeVectMod : Mod, IGlobalSettings<DeVectSettings>, IMenuMod, IToggla
 
     public override void Initialize(Dictionary<string, Dictionary<string, GameObject>> preloadedObjects)
     {
+        _isShuttingDown = false;
+        EnsureOrbSystem();
+
         ModHooks.GetPlayerIntHook += OnGetPlayerInt;
-        Log("DeVect initialized.");
+        ModHooks.HeroUpdateHook += OnHeroUpdate;
+        ModHooks.SlashHitHook += OnSlashHit;
+        On.PlayMakerFSM.OnEnable += OnPlayMakerFsmEnable;
+        UnityEngine.SceneManagement.SceneManager.activeSceneChanged += OnActiveSceneChanged;
+        Application.quitting += OnApplicationQuitting;
+
+        LogModInfo("DeVect initialized.");
     }
 
     public void Unload()
     {
         ModHooks.GetPlayerIntHook -= OnGetPlayerInt;
+        ModHooks.HeroUpdateHook -= OnHeroUpdate;
+        ModHooks.SlashHitHook -= OnSlashHit;
+        On.PlayMakerFSM.OnEnable -= OnPlayMakerFsmEnable;
+        UnityEngine.SceneManagement.SceneManager.activeSceneChanged -= OnActiveSceneChanged;
+        Application.quitting -= OnApplicationQuitting;
+        ResetRuntimeState();
     }
 
     public void OnLoadGlobal(DeVectSettings settings)
@@ -65,16 +88,197 @@ public class DeVectMod : Mod, IGlobalSettings<DeVectSettings>, IMenuMod, IToggla
 
     private int OnGetPlayerInt(string key, int value)
     {
-        if (!_settings.Enabled)
+        if (!_settings.Enabled || _isShuttingDown)
         {
             return value;
         }
 
-        if (key == "maxHealthBase")
+        return key == "maxHealthBase" ? Math.Max(value, _settings.MinBaseHealth) : value;
+    }
+
+    private void OnHeroUpdate()
+    {
+        if (!_settings.Enabled)
         {
-            return Math.Max(value, _settings.MinBaseHealth);
+            ResetRuntimeState();
+            return;
         }
 
-        return value;
+        if (_isShuttingDown)
+        {
+            return;
+        }
+
+        HeroController hero = HeroController.instance;
+        if (hero == null || hero.transform == null)
+        {
+            _orbSystem?.OnSceneChanged();
+            return;
+        }
+
+        EnsureOrbSystem();
+        _orbSystem?.OnHeroUpdate(hero, Time.deltaTime);
+    }
+
+    private void OnSlashHit(Collider2D otherCollider, GameObject slash)
+    {
+        if (!_settings.Enabled || _isShuttingDown || !OrbCombatService.IsEnemyCollider(otherCollider))
+        {
+            return;
+        }
+
+        EnsureOrbSystem();
+        _orbSystem?.OnSlashHit(otherCollider);
+    }
+
+    private void OnPlayMakerFsmEnable(On.PlayMakerFSM.orig_OnEnable orig, PlayMakerFSM self)
+    {
+        orig(self);
+
+        if (!_settings.Enabled || _isShuttingDown || self == null)
+        {
+            return;
+        }
+
+        HeroController hero = HeroController.instance;
+        if (hero == null)
+        {
+            return;
+        }
+
+        EnsureOrbSystem();
+        if (_orbSystem == null || !_orbSystem.ShouldInjectSpellFsm(self, hero))
+        {
+            return;
+        }
+
+        bool injected = false;
+        injected |= InjectFireballDetector(self, "Spell Choice");
+        injected |= InjectFireballDetector(self, "QC");
+        if (injected)
+        {
+            _orbSystem.MarkSpellFsmInjected();
+            LogModInfo("Injected fireball detector into Spell Control FSM.");
+        }
+    }
+
+    private bool InjectFireballDetector(PlayMakerFSM fsm, string stateName)
+    {
+        FsmState state = fsm.Fsm.GetState(stateName);
+        if (state == null || state.Actions == null)
+        {
+            return false;
+        }
+
+        for (int i = 0; i < state.Actions.Length; i++)
+        {
+            if (state.Actions[i] is FireballDetectAction)
+            {
+                return false;
+            }
+        }
+
+        FsmStateAction[] newActions = new FsmStateAction[state.Actions.Length + 1];
+        newActions[0] = new FireballDetectAction
+        {
+            OnFireballCast = HandleFireballCast,
+            ShouldConsumeSpell = ShouldConsumeFireballSpell
+        };
+
+        for (int i = 0; i < state.Actions.Length; i++)
+        {
+            newActions[i + 1] = state.Actions[i];
+        }
+
+        state.Actions = newActions;
+        return true;
+    }
+
+    private void HandleFireballCast()
+    {
+        if (!_settings.Enabled || _isShuttingDown)
+        {
+            return;
+        }
+
+        EnsureOrbSystem();
+        _orbSystem?.OnFireballCast();
+    }
+
+    private bool ShouldConsumeFireballSpell()
+    {
+        if (!_settings.Enabled || _isShuttingDown)
+        {
+            return false;
+        }
+
+        EnsureOrbSystem();
+        return _orbSystem?.ShouldConsumeFireballSpell() ?? false;
+    }
+
+    private void OnActiveSceneChanged(UnityEngine.SceneManagement.Scene from, UnityEngine.SceneManagement.Scene to)
+    {
+        if (!_settings.Enabled || _isShuttingDown)
+        {
+            return;
+        }
+
+        _orbSystem?.OnSceneChanged();
+    }
+
+    private void OnApplicationQuitting()
+    {
+        _isShuttingDown = true;
+        _orbSystem?.OnShutdown();
+    }
+
+    private void ResetRuntimeState()
+    {
+        _persistentState.Clear();
+        _lastKnownNailDamage = 0;
+        _isShuttingDown = false;
+        _orbSystem?.ResetAll();
+        EnsureOrbSystem();
+    }
+
+    private void EnsureOrbSystem()
+    {
+        if (_orbSystem != null)
+        {
+            return;
+        }
+
+        _orbSystem = new OrbSystem(
+            new OrbSystemDependencies
+            {
+                IsEnabled = () => _settings.Enabled,
+                IsShuttingDown = () => _isShuttingDown,
+                GetCurrentNailDamage = GetCurrentNailDamage,
+                GetHero = () => HeroController.instance,
+                LogInfo = LogModInfo,
+                LogDebug = LogModDebug,
+                PersistentState = _persistentState
+            }
+        );
+    }
+
+    private int GetCurrentNailDamage()
+    {
+        if (GameManager.instance != null && GameManager.instance.playerData != null)
+        {
+            _lastKnownNailDamage = Math.Max(1, GameManager.instance.playerData.nailDamage);
+        }
+
+        return Math.Max(1, _lastKnownNailDamage);
+    }
+
+    private static void LogModInfo(string message)
+    {
+        Modding.Logger.Log($"[DeVectMod] - {message}");
+    }
+
+    private static void LogModDebug(string message)
+    {
+        Modding.Logger.LogDebug($"[DeVectMod] - {message}");
     }
 }

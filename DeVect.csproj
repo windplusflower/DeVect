@@ -28,6 +28,18 @@
       <HintPath>$(GameDir)\UnityEngine.CoreModule.dll</HintPath>
       <Private>false</Private>
     </Reference>
+    <Reference Include="UnityEngine.Physics2DModule">
+      <HintPath>$(GameDir)\UnityEngine.Physics2DModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.InputLegacyModule">
+      <HintPath>$(GameDir)\UnityEngine.InputLegacyModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.ImageConversionModule">
+      <HintPath>$(GameDir)\UnityEngine.ImageConversionModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
     <Reference Include="PlayMaker">
       <HintPath>$(GameDir)\PlayMaker.dll</HintPath>
       <Private>false</Private>
@@ -46,9 +58,17 @@
     </Reference>
   </ItemGroup>
 
+  <ItemGroup>
+    <None Include="assets\闪电.png">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
   <Target Name="InstallMod" AfterTargets="Build">
     <MakeDir Directories="$(InstallDir)" />
+    <MakeDir Directories="$(InstallDir)\assets" />
     <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(InstallDir)" />
     <Copy SourceFiles="$(TargetDir)$(AssemblyName).pdb" DestinationFolder="$(InstallDir)" Condition="Exists('$(TargetDir)$(AssemblyName).pdb')" />
+    <Copy SourceFiles="assets\闪电.png" DestinationFolder="$(InstallDir)\assets" />
   </Target>
 </Project>
