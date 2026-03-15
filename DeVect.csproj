@@ -70,5 +70,38 @@
     <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(InstallDir)" />
     <Copy SourceFiles="$(TargetDir)$(AssemblyName).pdb" DestinationFolder="$(InstallDir)" Condition="Exists('$(TargetDir)$(AssemblyName).pdb')" />
     <Copy SourceFiles="assets\闪电.png" DestinationFolder="$(InstallDir)\assets" />
+
+    <RemoveDir Condition="Exists('$(InstallDir)\Archive')" Directories="$(InstallDir)\Archive" />
+    <MakeDir Directories="$(InstallDir)\Archive" />
+
+    <ItemGroup>
+      <PackageFiles Include="$(TargetPath)" />
+      <PackageFiles Include="$(TargetDir)$(AssemblyName).pdb" Condition="Exists('$(TargetDir)$(AssemblyName).pdb')" />
+      <PackageFiles Include="assets\**\*" />
+    </ItemGroup>
+
+    <Copy
+      SourceFiles="@(PackageFiles)"
+      DestinationFiles="@(PackageFiles->'$(InstallDir)\Archive\%(RecursiveDir)%(Filename)%(Extension)')"
+    />
+
+    <ZipDirectory
+      SourceDirectory="$(InstallDir)\Archive"
+      DestinationFile="$(InstallDir)\$(AssemblyName).zip"
+      Overwrite="true"
+    />
+
+    <GetFileHash Files="$(InstallDir)\$(AssemblyName).zip" Algorithm="SHA256">
+      <Output TaskParameter="Items" ItemName="PackageHash" />
+    </GetFileHash>
+
+    <WriteLinesToFile
+      File="$(InstallDir)\SHA256.txt"
+      Lines="@(PackageHash->'%(FileHash)')"
+      Overwrite="true"
+      Encoding="UTF-8"
+    />
+
+    <RemoveDir Directories="$(InstallDir)\Archive" />
   </Target>
 </Project>
