@@ -11,9 +11,14 @@ internal sealed class BlackOrbDefinition : IOrbDefinition
 
     public Color OrbColor => new(0.2f, 0.09f, 0.28f, 1f);
 
+    public int GetInitialDamage(OrbTriggerContext context)
+    {
+        return Mathf.Max(1, Mathf.CeilToInt(context.NailDamage * 0.75f) + context.FocusBonus);
+    }
+
     public void OnPassive(OrbTriggerContext context, OrbInstance instance)
     {
-        int bonusDamage = Mathf.Max(1, context.NailDamage);
+        int bonusDamage = Mathf.Max(1, context.NailDamage) + context.FocusBonus;
         instance.CurrentDamage += bonusDamage;
         context.LogDebug($"Black passive stored +{bonusDamage} damage. Total={instance.CurrentDamage}.");
     }

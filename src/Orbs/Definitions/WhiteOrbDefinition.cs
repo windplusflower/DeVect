@@ -12,6 +12,11 @@ internal sealed class WhiteOrbDefinition : IOrbDefinition
 
     public Color OrbColor => new(0.92f, 0.96f, 1f, 1f);
 
+    public int GetInitialDamage(OrbTriggerContext context)
+    {
+        return Mathf.Max(1, DeVect.Combat.OrbCombatService.GetCeilThirdDamage(context.NailDamage) + context.FocusBonus);
+    }
+
     public void OnPassive(OrbTriggerContext context, OrbInstance instance)
     {
         if (instance.CurrentDamage <= 0)

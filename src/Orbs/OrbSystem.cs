@@ -124,6 +124,18 @@ internal sealed class OrbSystem
         return CanProcess() && _getHero() != null;
     }
 
+    public int GetCharmFocusBonus()
+    {
+        PlayerData? playerData = PlayerData.instance;
+        return playerData != null && HasShamanStone(playerData) ? 2 : 0;
+    }
+
+    public int GetOrbSlotCapacity()
+    {
+        PlayerData? playerData = PlayerData.instance;
+        return playerData != null && HasFlukenest(playerData) ? 4 : 3;
+    }
+
     private void HandleSpellCast(OrbTypeId spawnType)
     {
         if (!CanProcess())
@@ -138,14 +150,17 @@ internal sealed class OrbSystem
         }
 
         RestoreRuntimeIfNeeded(hero);
-        if (_runtime.GetActiveOrbCount() >= 3)
+        OrbTriggerContext context = CreateTriggerContext(hero);
+        int slotCapacity = GetOrbSlotCapacity();
+        int initialDamage = _definitions.Get(spawnType).GetInitialDamage(context);
+        if (_runtime.GetActiveOrbCount() >= slotCapacity)
         {
-            TriggerEvocation(hero, spawnType);
+            TriggerEvocation(hero, spawnType, initialDamage);
             _persistentState.ReplaceFromRuntime(_runtime.SnapshotActiveOrbs());
             return;
         }
 
-        if (_runtime.TrySpawnOrbInNextAvailableSlot(spawnType, _getCurrentNailDamage(), _definitions))
+        if (_runtime.TrySpawnOrbInNextAvailableSlot(spawnType, initialDamage, _definitions))
         {
             _persistentState.ReplaceFromRuntime(_runtime.SnapshotActiveOrbs());
             _logDebug($"Spawned {spawnType} orb. Filled slots={_persistentState.GetFilledCount()}");
@@ -224,9 +239,9 @@ internal sealed class OrbSystem
         _persistentState.ReplaceFromRuntime(_runtime.SnapshotActiveOrbs());
     }
 
-    private void TriggerEvocation(HeroController hero, OrbTypeId spawnType)
+    private void TriggerEvocation(HeroController hero, OrbTypeId spawnType, int initialDamage)
     {
-        if (!_runtime.TryForceInsertOrbFromLeft(spawnType, _getCurrentNailDamage(), _definitions, out OrbInstance? evictedOrb) || evictedOrb == null)
+        if (!_runtime.TryForceInsertOrbFromLeft(spawnType, initialDamage, _definitions, out OrbInstance? evictedOrb) || evictedOrb == null)
         {
             return;
         }
@@ -236,12 +251,28 @@ internal sealed class OrbSystem
 
     private OrbTriggerContext CreateTriggerContext(HeroController hero)
     {
-        return new OrbTriggerContext(hero, _getCurrentNailDamage(), _combatService, _visualService, _runtime, _logDebug);
+        return new OrbTriggerContext(hero, _getCurrentNailDamage(), GetCharmFocusBonus(), _combatService, _visualService, _runtime, _logDebug);
     }
 
     private void RestoreRuntimeIfNeeded(HeroController hero)
     {
-        _runtime.EnsureBuilt(hero.transform, _persistentState.FilledOrbs, _definitions);
+        int slotCapacity = GetOrbSlotCapacity();
+        if (_runtime.Capacity > 0 && _runtime.IsBoundTo(hero.transform) && _runtime.Capacity != slotCapacity)
+        {
+            _persistentState.ReplaceFromRuntime(_runtime.SnapshotActiveOrbs());
+        }
+
+        _runtime.EnsureBuilt(hero.transform, slotCapacity, _persistentState.FilledOrbs, _definitions);
+    }
+
+    private static bool HasShamanStone(PlayerData playerData)
+    {
+        return playerData.GetBool("equippedCharm_19");
+    }
+
+    private static bool HasFlukenest(PlayerData playerData)
+    {
+        return playerData.GetBool("equippedCharm_11");
     }
 
     private bool CanProcess()

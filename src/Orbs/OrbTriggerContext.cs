@@ -10,6 +10,7 @@ internal sealed class OrbTriggerContext
     public OrbTriggerContext(
         HeroController hero,
         int nailDamage,
+        int focusBonus,
         OrbCombatService combat,
         OrbVisualService visuals,
         OrbRuntime runtime,
@@ -17,6 +18,7 @@ internal sealed class OrbTriggerContext
     {
         Hero = hero;
         NailDamage = nailDamage;
+        FocusBonus = focusBonus;
         Combat = combat;
         Visuals = visuals;
         Runtime = runtime;
@@ -26,6 +28,8 @@ internal sealed class OrbTriggerContext
     public HeroController Hero { get; }
 
     public int NailDamage { get; }
+
+    public int FocusBonus { get; }
 
     public OrbCombatService Combat { get; }
 

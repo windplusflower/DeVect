@@ -11,6 +11,8 @@ internal interface IOrbDefinition
 
     Color OrbColor { get; }
 
+    int GetInitialDamage(OrbTriggerContext context);
+
     void OnPassive(OrbTriggerContext context, OrbInstance instance);
 
     void OnEvocation(OrbTriggerContext context, OrbInstance instance);
