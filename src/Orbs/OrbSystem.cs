@@ -11,6 +11,8 @@ namespace DeVect.Orbs;
 
 internal sealed class OrbSystem
 {
+    private const float SlashHitDedupWindowSeconds = 0.08f;
+
     private readonly Func<bool> _isEnabled;
     private readonly Func<bool> _isShuttingDown;
     private readonly Func<int> _getCurrentNailDamage;
@@ -23,6 +25,8 @@ internal sealed class OrbSystem
     private readonly OrbDefinitionRegistry _definitions;
     private readonly OrbPersistentState _persistentState;
     private int _nailHitCounter;
+    private int _lastProcessedSlashInstanceId;
+    private float _lastProcessedSlashTime;
     private bool _spellFsmInjected;
 
     public OrbSystem(OrbSystemDependencies dependencies)
@@ -40,6 +44,7 @@ internal sealed class OrbSystem
         _definitions = new OrbDefinitionRegistry(new IOrbDefinition[]
         {
             new YellowOrbDefinition(),
+            new BlackOrbDefinition(),
             new WhiteOrbDefinition()
         });
         _runtime = new OrbRuntime(_visualService);
@@ -58,7 +63,7 @@ internal sealed class OrbSystem
         _combatService.TickDebugVisuals();
     }
 
-    public void OnSlashHit(Collider2D otherCollider)
+    public void OnSlashHit(Collider2D otherCollider, GameObject? slash)
     {
         if (!CanProcess() || !OrbCombatService.IsEnemyCollider(otherCollider))
         {
@@ -71,8 +76,24 @@ internal sealed class OrbSystem
             return;
         }
 
+        int slashInstanceId = slash != null ? slash.GetInstanceID() : 0;
+        float now = Time.time;
+
+        if (slash != null)
+        {
+            if (_lastProcessedSlashInstanceId == slashInstanceId
+                && (now - _lastProcessedSlashTime) <= SlashHitDedupWindowSeconds)
+            {
+                return;
+            }
+
+            _lastProcessedSlashInstanceId = slashInstanceId;
+            _lastProcessedSlashTime = now;
+        }
+
         _nailHitCounter++;
-        if (_nailHitCounter % 3 == 0)
+        bool triggeredPassive = _nailHitCounter % 3 == 0;
+        if (triggeredPassive)
         {
             TriggerPassiveOrbs(hero);
         }
@@ -88,7 +109,17 @@ internal sealed class OrbSystem
         HandleSpellCast(OrbTypeId.White);
     }
 
+    public void OnDiveCast()
+    {
+        HandleSpellCast(OrbTypeId.Black);
+    }
+
     public bool ShouldConsumeFireballSpell()
+    {
+        return CanProcess() && _getHero() != null;
+    }
+
+    public bool ShouldConsumeDiveSpell()
     {
         return CanProcess() && _getHero() != null;
     }
@@ -123,6 +154,8 @@ internal sealed class OrbSystem
 
     public void OnSceneChanged()
     {
+        _lastProcessedSlashInstanceId = 0;
+        _lastProcessedSlashTime = 0f;
         _combatService.DisposeDebugVisuals();
         _runtime.SuspendAndRemember(_persistentState);
         _spellFsmInjected = false;
@@ -130,6 +163,8 @@ internal sealed class OrbSystem
 
     public void OnShutdown()
     {
+        _lastProcessedSlashInstanceId = 0;
+        _lastProcessedSlashTime = 0f;
         _spellFsmInjected = false;
         _combatService.DisposeDebugVisuals();
         _runtime.Dispose();
@@ -138,6 +173,8 @@ internal sealed class OrbSystem
     public void ResetAll()
     {
         _nailHitCounter = 0;
+        _lastProcessedSlashInstanceId = 0;
+        _lastProcessedSlashTime = 0f;
         _spellFsmInjected = false;
         _combatService.DisposeDebugVisuals();
         _runtime.Dispose();

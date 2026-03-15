@@ -128,7 +128,7 @@ public partial class DeVectMod : Mod, IGlobalSettings<DeVectSettings>, IMenuMod,
         }
 
         EnsureOrbSystem();
-        _orbSystem?.OnSlashHit(otherCollider);
+        _orbSystem?.OnSlashHit(otherCollider, slash);
     }
 
     private void OnPlayMakerFsmEnable(On.PlayMakerFSM.orig_OnEnable orig, PlayMakerFSM self)
@@ -182,8 +182,10 @@ public partial class DeVectMod : Mod, IGlobalSettings<DeVectSettings>, IMenuMod,
         newActions[0] = new SpellDetectAction
         {
             OnFireballCast = HandleFireballCast,
+            OnDiveCast = HandleDiveCast,
             OnShriekCast = HandleShriekCast,
             ShouldConsumeFireballSpell = ShouldConsumeFireballSpell,
+            ShouldConsumeDiveSpell = ShouldConsumeDiveSpell,
             ShouldConsumeShriekSpell = ShouldConsumeShriekSpell
         };
 
@@ -207,6 +209,17 @@ public partial class DeVectMod : Mod, IGlobalSettings<DeVectSettings>, IMenuMod,
         _orbSystem?.OnFireballCast();
     }
 
+    private void HandleDiveCast()
+    {
+        if (!_settings.Enabled || _isShuttingDown)
+        {
+            return;
+        }
+
+        EnsureOrbSystem();
+        _orbSystem?.OnDiveCast();
+    }
+
     private void HandleShriekCast()
     {
         if (!_settings.Enabled || _isShuttingDown)
@@ -227,6 +240,17 @@ public partial class DeVectMod : Mod, IGlobalSettings<DeVectSettings>, IMenuMod,
 
         EnsureOrbSystem();
         return _orbSystem?.ShouldConsumeFireballSpell() ?? false;
+    }
+
+    private bool ShouldConsumeDiveSpell()
+    {
+        if (!_settings.Enabled || _isShuttingDown)
+        {
+            return false;
+        }
+
+        EnsureOrbSystem();
+        return _orbSystem?.ShouldConsumeDiveSpell() ?? false;
     }
 
     private bool ShouldConsumeShriekSpell()

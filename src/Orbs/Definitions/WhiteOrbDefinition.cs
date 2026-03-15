@@ -28,7 +28,7 @@ internal sealed class WhiteOrbDefinition : IOrbDefinition
                 continue;
             }
 
-            context.Visuals.SpawnGlassShatterVisual(context.Combat.GetGlassHitVisualPosition(targets[i]));
+            context.Visuals.SpawnGlassShatterVisual(context.Combat.GetWhiteImpactVisualPosition(targets[i]));
         }
 
         instance.CurrentDamage = Mathf.Max(0, instance.CurrentDamage - 1);
@@ -56,7 +56,7 @@ internal sealed class WhiteOrbDefinition : IOrbDefinition
                 continue;
             }
 
-            context.Visuals.SpawnGlassShatterVisual(context.Combat.GetGlassHitVisualPosition(targets[i]));
+            context.Visuals.SpawnGlassShatterVisual(context.Combat.GetWhiteImpactVisualPosition(targets[i]));
         }
 
         context.LogDebug($"White evocation hit {targets.Count} target(s) for {damage}.");

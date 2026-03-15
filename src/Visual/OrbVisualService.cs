@@ -11,9 +11,12 @@ internal sealed class OrbVisualService
     private const float DashThicknessFactor = 0.32f;
     private const float LightningScale = 0.42f;
     private const float LightningLifetime = 0.46f;
-    private const float GlassShardLifetime = 0.36f;
-    private const float RefractionRingLifetime = 0.3f;
-    private const float GlassFlashLifetime = 0.18f;
+    private const float VoidImpactBloomLifetime = 0.24f;
+    private const float VoidImpactRiftLifetime = 0.42f;
+    private const float VoidImpactWispLifetime = 0.34f;
+    private const float GlassShardLifetime = 0.46f;
+    private const float RefractionRingLifetime = 0.38f;
+    private const float GlassFlashLifetime = 0.24f;
     private const int DashCount = 14;
     private static readonly Color DashColor = new(1f, 1f, 1f, 0.55f);
 
@@ -28,6 +31,9 @@ internal sealed class OrbVisualService
     private static Sprite? _glassFlashSprite;
     private static Texture2D? _lightningTexture;
     private static Sprite? _lightningSprite;
+    private static Sprite? _voidOrbSprite;
+    private static Sprite? _voidRippleSprite;
+    private static Sprite? _voidDropletSprite;
 
     public void BuildDashedRing(Transform parent)
     {
@@ -54,13 +60,22 @@ internal sealed class OrbVisualService
     {
         GameObject orb = new(name);
         SpriteRenderer renderer = orb.AddComponent<SpriteRenderer>();
-        renderer.sprite = typeId == OrbTypeId.White ? CreateGlassOrbSprite() : CreateCircleSprite();
+        renderer.sprite = typeId switch
+        {
+            OrbTypeId.White => CreateGlassOrbSprite(),
+            OrbTypeId.Black => CreateVoidOrbSprite(),
+            _ => CreateCircleSprite()
+        };
         renderer.color = color;
         renderer.sortingLayerName = "HUD";
         renderer.sortingOrder = 10;
         if (typeId == OrbTypeId.White)
         {
             AddWhiteOrbMaterialLayers(orb.transform, color);
+        }
+        else if (typeId == OrbTypeId.Black)
+        {
+            AddBlackOrbMaterialLayers(orb.transform, color);
         }
         else
         {
@@ -91,39 +106,39 @@ internal sealed class OrbVisualService
         GameObject flash = new("DeVect_GlassImpactFlash");
         flash.transform.position = worldPosition;
         flash.transform.rotation = Quaternion.identity;
-        flash.transform.localScale = new Vector3(0.52f, 0.52f, 1f);
+        flash.transform.localScale = new Vector3(0.68f, 0.68f, 1f);
 
         SpriteRenderer flashRenderer = flash.AddComponent<SpriteRenderer>();
         flashRenderer.sprite = CreateGlassFlashSprite();
-        flashRenderer.color = new Color(0.96f, 1f, 1f, 0.95f);
+        flashRenderer.color = new Color(1f, 1f, 1f, 1f);
         flashRenderer.sortingLayerName = "HUD";
         flashRenderer.sortingOrder = 14;
-        _transientVisuals.Add(new TransientVisual(flash, flashRenderer, GlassFlashLifetime, Vector3.zero, flashRenderer.color, new Vector3(0.92f, 0.92f, 1f)));
+        _transientVisuals.Add(new TransientVisual(flash, flashRenderer, GlassFlashLifetime, Vector3.zero, flashRenderer.color, new Vector3(1.16f, 1.16f, 1f)));
 
         GameObject ring = new("DeVect_GlassRefractionRing");
         ring.transform.position = worldPosition;
         ring.transform.rotation = Quaternion.identity;
-        ring.transform.localScale = new Vector3(0.34f, 0.34f, 1f);
+        ring.transform.localScale = new Vector3(0.44f, 0.44f, 1f);
 
         SpriteRenderer ringRenderer = ring.AddComponent<SpriteRenderer>();
         ringRenderer.sprite = CreateRefractionRingSprite();
-        ringRenderer.color = new Color(0.78f, 0.95f, 1f, 0.92f);
+        ringRenderer.color = new Color(0.84f, 0.98f, 1f, 0.98f);
         ringRenderer.sortingLayerName = "HUD";
         ringRenderer.sortingOrder = 13;
-        _transientVisuals.Add(new TransientVisual(ring, ringRenderer, RefractionRingLifetime, Vector3.zero, ringRenderer.color, new Vector3(0.84f, 0.84f, 1f)));
+        _transientVisuals.Add(new TransientVisual(ring, ringRenderer, RefractionRingLifetime, Vector3.zero, ringRenderer.color, new Vector3(1.1f, 1.1f, 1f)));
 
         Vector3[] velocities =
         {
-            new Vector3(-3.6f, 2.4f, 0f),
-            new Vector3(-2.4f, 3.1f, 0f),
-            new Vector3(-1.1f, 2.8f, 0f),
-            new Vector3(1.2f, 3f, 0f),
-            new Vector3(2.6f, 2.5f, 0f),
-            new Vector3(3.7f, 1.7f, 0f),
-            new Vector3(-2.8f, 0.9f, 0f),
-            new Vector3(2.9f, 1f, 0f),
-            new Vector3(-1.6f, -0.2f, 0f),
-            new Vector3(1.7f, -0.15f, 0f)
+            new Vector3(-4.2f, 2.9f, 0f),
+            new Vector3(-3f, 3.7f, 0f),
+            new Vector3(-1.35f, 3.3f, 0f),
+            new Vector3(1.45f, 3.45f, 0f),
+            new Vector3(3.2f, 2.95f, 0f),
+            new Vector3(4.25f, 2f, 0f),
+            new Vector3(-3.2f, 1.1f, 0f),
+            new Vector3(3.3f, 1.2f, 0f),
+            new Vector3(-1.95f, -0.3f, 0f),
+            new Vector3(2.05f, -0.22f, 0f)
         };
 
         for (int i = 0; i < velocities.Length; i++)
@@ -131,16 +146,70 @@ internal sealed class OrbVisualService
             GameObject shard = new($"DeVect_GlassShard_{i}");
             shard.transform.position = worldPosition;
             shard.transform.rotation = Quaternion.Euler(0f, 0f, i * 37f);
-            shard.transform.localScale = new Vector3(0.15f, 0.15f, 1f);
+            shard.transform.localScale = new Vector3(0.19f, 0.19f, 1f);
 
             SpriteRenderer shardRenderer = shard.AddComponent<SpriteRenderer>();
             shardRenderer.sprite = CreateGlassShardSprite();
             shardRenderer.color = i % 2 == 0
-                ? new Color(0.96f, 1f, 1f, 0.98f)
-                : new Color(0.72f, 0.92f, 1f, 0.95f);
+                ? new Color(1f, 1f, 1f, 1f)
+                : new Color(0.8f, 0.96f, 1f, 0.98f);
             shardRenderer.sortingLayerName = "HUD";
             shardRenderer.sortingOrder = 15;
             _transientVisuals.Add(new TransientVisual(shard, shardRenderer, GlassShardLifetime, velocities[i], shardRenderer.color, shard.transform.localScale));
+        }
+    }
+
+    public void SpawnVoidImpactVisual(Vector3 worldPosition)
+    {
+        GameObject bloom = new("DeVect_VoidImpactBloom");
+        bloom.transform.position = worldPosition;
+        bloom.transform.rotation = Quaternion.identity;
+        bloom.transform.localScale = new Vector3(0.34f, 0.34f, 1f);
+
+        SpriteRenderer bloomRenderer = bloom.AddComponent<SpriteRenderer>();
+        bloomRenderer.sprite = CreateVoidRippleSprite();
+        bloomRenderer.color = new Color(0.9f, 0.78f, 1f, 0.98f);
+        bloomRenderer.sortingLayerName = "HUD";
+        bloomRenderer.sortingOrder = 15;
+        _transientVisuals.Add(new TransientVisual(bloom, bloomRenderer, VoidImpactBloomLifetime, Vector3.zero, bloomRenderer.color, new Vector3(0.96f, 0.96f, 1f)));
+
+        GameObject rift = new("DeVect_VoidImpactRift");
+        rift.transform.position = worldPosition;
+        rift.transform.rotation = Quaternion.identity;
+        rift.transform.localScale = new Vector3(0.42f, 1.12f, 1f);
+
+        SpriteRenderer riftRenderer = rift.AddComponent<SpriteRenderer>();
+        riftRenderer.sprite = CreateVoidDropletSprite();
+        riftRenderer.color = new Color(0.2f, 0.04f, 0.24f, 1f);
+        riftRenderer.sortingLayerName = "HUD";
+        riftRenderer.sortingOrder = 16;
+        _transientVisuals.Add(new TransientVisual(rift, riftRenderer, VoidImpactRiftLifetime, Vector3.zero, riftRenderer.color, new Vector3(0.68f, 1.56f, 1f)));
+
+        Vector3[] velocities =
+        {
+            new Vector3(-1.45f, 2.35f, 0f),
+            new Vector3(1.5f, 2.5f, 0f),
+            new Vector3(-2.05f, 0.82f, 0f),
+            new Vector3(2.1f, 0.9f, 0f),
+            new Vector3(-0.95f, 0.18f, 0f),
+            new Vector3(1.02f, 0.24f, 0f)
+        };
+
+        for (int i = 0; i < velocities.Length; i++)
+        {
+            GameObject wisp = new($"DeVect_VoidWisp_{i}");
+            wisp.transform.position = worldPosition + new Vector3((i - 2.5f) * 0.03f, 0f, 0f);
+            wisp.transform.rotation = Quaternion.Euler(0f, 0f, i % 2 == 0 ? -22f : 22f);
+            wisp.transform.localScale = new Vector3(0.2f, 0.54f, 1f);
+
+            SpriteRenderer wispRenderer = wisp.AddComponent<SpriteRenderer>();
+            wispRenderer.sprite = CreateVoidDropletSprite();
+            wispRenderer.color = i % 2 == 0
+                ? new Color(0.42f, 0.2f, 0.55f, 0.92f)
+                : new Color(0.78f, 0.58f, 0.96f, 0.88f);
+            wispRenderer.sortingLayerName = "HUD";
+            wispRenderer.sortingOrder = 17;
+            _transientVisuals.Add(new TransientVisual(wisp, wispRenderer, VoidImpactWispLifetime, velocities[i], wispRenderer.color, new Vector3(0.28f, 0.68f, 1f)));
         }
     }
 
@@ -386,6 +455,45 @@ internal sealed class OrbVisualService
             13,
             new Vector3(-0.11f, 0.11f, 0f),
             new Vector3(0.52f, 0.52f, 1f));
+    }
+
+    private static void AddBlackOrbMaterialLayers(Transform parent, Color baseColor)
+    {
+        CreateLayerRenderer(
+            parent,
+            "VoidHalo",
+            CreateVoidRippleSprite(),
+            new Color(0.09f, 0.02f, 0.12f, 0.56f),
+            8,
+            Vector3.zero,
+            new Vector3(1.4f, 1.4f, 1f));
+
+        CreateLayerRenderer(
+            parent,
+            "VoidCore",
+            CreateCircleSprite(),
+            new Color(baseColor.r * 1.1f, baseColor.g * 0.82f, baseColor.b * 1.18f, 0.34f),
+            11,
+            new Vector3(0.015f, -0.015f, 0f),
+            new Vector3(0.7f, 0.7f, 1f));
+
+        CreateLayerRenderer(
+            parent,
+            "VoidGloss",
+            CreateHighlightSprite(),
+            new Color(0.76f, 0.62f, 0.92f, 0.52f),
+            12,
+            new Vector3(-0.08f, 0.09f, 0f),
+            new Vector3(0.46f, 0.46f, 1f));
+
+        CreateLayerRenderer(
+            parent,
+            "VoidDroplet",
+            CreateVoidDropletSprite(),
+            new Color(0.14f, 0.05f, 0.18f, 0.72f),
+            13,
+            new Vector3(0.11f, -0.1f, 0f),
+            new Vector3(0.22f, 0.22f, 1f));
     }
 
     private static SpriteRenderer CreateLayerRenderer(Transform parent, string name, Sprite sprite, Color color, int sortingOrder, Vector3 localPosition, Vector3 localScale)
@@ -651,6 +759,142 @@ internal sealed class OrbVisualService
         _lightningSprite = Sprite.Create(texture, new Rect(0f, 0f, texture.width, texture.height), new Vector2(0.5f, 0f), 48f);
         _lightningSprite.name = "DeVect_LightningSprite";
         return _lightningSprite;
+    }
+
+    private static Sprite CreateVoidOrbSprite()
+    {
+        if (_voidOrbSprite != null)
+        {
+            return _voidOrbSprite;
+        }
+
+        const int size = 64;
+        Texture2D texture = new(size, size, TextureFormat.RGBA32, false)
+        {
+            filterMode = FilterMode.Bilinear,
+            wrapMode = TextureWrapMode.Clamp,
+            name = "DeVect_VoidOrb"
+        };
+
+        float radius = (size - 1) * 0.5f;
+        Vector2 center = new(radius, radius);
+        Vector2 flowDirection = new(-0.45f, 0.89f);
+        flowDirection.Normalize();
+        for (int y = 0; y < size; y++)
+        {
+            for (int x = 0; x < size; x++)
+            {
+                Vector2 point = new(x, y);
+                Vector2 offset = (point - center) / radius;
+                float distance = offset.magnitude;
+                if (distance > 1f)
+                {
+                    texture.SetPixel(x, y, Color.clear);
+                    continue;
+                }
+
+                float edgeFade = Mathf.Clamp01((1f - distance) / 0.08f);
+                float sphereMask = Mathf.Clamp01(1f - (distance * distance));
+                float directional = Mathf.Clamp01(Vector2.Dot(offset.normalized, flowDirection));
+                float swirl = 0.5f + (0.5f * Mathf.Sin((offset.x * 8.5f) - (offset.y * 6.2f) + (distance * 7.5f)));
+                float ooze = Mathf.Clamp01(1f - Mathf.Abs(offset.x * 0.72f - offset.y * 0.46f) * 1.75f);
+                float brightness = 0.06f + (sphereMask * 0.16f) + (directional * 0.1f) + (swirl * 0.09f) + (ooze * 0.08f);
+                float r = brightness * 0.78f;
+                float g = brightness * 0.43f;
+                float b = brightness * 1.18f;
+                texture.SetPixel(x, y, new Color(r, g, b, edgeFade * 0.98f));
+            }
+        }
+
+        texture.Apply();
+        _voidOrbSprite = Sprite.Create(texture, new Rect(0f, 0f, size, size), new Vector2(0.5f, 0.5f), size);
+        _voidOrbSprite.name = "DeVect_VoidOrbSprite";
+        return _voidOrbSprite;
+    }
+
+    private static Sprite CreateVoidRippleSprite()
+    {
+        if (_voidRippleSprite != null)
+        {
+            return _voidRippleSprite;
+        }
+
+        const int size = 48;
+        Texture2D texture = new(size, size, TextureFormat.RGBA32, false)
+        {
+            filterMode = FilterMode.Bilinear,
+            wrapMode = TextureWrapMode.Clamp,
+            name = "DeVect_VoidRipple"
+        };
+
+        float radius = (size - 1) * 0.5f;
+        Vector2 center = new(radius, radius);
+        for (int y = 0; y < size; y++)
+        {
+            for (int x = 0; x < size; x++)
+            {
+                Vector2 offset = (new Vector2(x, y) - center) / radius;
+                float distance = offset.magnitude;
+                if (distance > 1f)
+                {
+                    texture.SetPixel(x, y, Color.clear);
+                    continue;
+                }
+
+                float uneven = 0.72f + (0.07f * Mathf.Sin(Mathf.Atan2(offset.y, offset.x) * 5f));
+                float shell = 1f - Mathf.Clamp01(Mathf.Abs(distance - uneven) / 0.16f);
+                float haze = Mathf.Clamp01(1f - distance) * 0.25f;
+                texture.SetPixel(x, y, new Color(1f, 1f, 1f, Mathf.Clamp01(shell + haze)));
+            }
+        }
+
+        texture.Apply();
+        _voidRippleSprite = Sprite.Create(texture, new Rect(0f, 0f, size, size), new Vector2(0.5f, 0.5f), size);
+        _voidRippleSprite.name = "DeVect_VoidRippleSprite";
+        return _voidRippleSprite;
+    }
+
+    private static Sprite CreateVoidDropletSprite()
+    {
+        if (_voidDropletSprite != null)
+        {
+            return _voidDropletSprite;
+        }
+
+        const int size = 32;
+        Texture2D texture = new(size, size, TextureFormat.RGBA32, false)
+        {
+            filterMode = FilterMode.Bilinear,
+            wrapMode = TextureWrapMode.Clamp,
+            name = "DeVect_VoidDroplet"
+        };
+
+        Vector2 center = new(size * 0.46f, size * 0.54f);
+        float radiusX = size * 0.24f;
+        float radiusY = size * 0.32f;
+        for (int y = 0; y < size; y++)
+        {
+            for (int x = 0; x < size; x++)
+            {
+                float normalizedX = (x - center.x) / radiusX;
+                float normalizedY = (y - center.y) / radiusY;
+                float distance = (normalizedX * normalizedX) + (normalizedY * normalizedY);
+                if (distance > 1f)
+                {
+                    texture.SetPixel(x, y, Color.clear);
+                    continue;
+                }
+
+                float tail = Mathf.Clamp01(1f - Mathf.Abs((x - (size * 0.5f)) / (size * 0.18f))) * Mathf.Clamp01((y - (size * 0.68f)) / (size * 0.16f));
+                float alpha = Mathf.Clamp01(Mathf.Pow(1f - distance, 1.3f) + (tail * 0.75f));
+                texture.SetPixel(x, y, new Color(1f, 1f, 1f, alpha));
+            }
+        }
+
+        texture.Apply();
+        _voidDropletSprite = Sprite.Create(texture, new Rect(0f, 0f, size, size), new Vector2(0.5f, 0.72f), size);
+        _voidDropletSprite.name = "DeVect_VoidDropletSprite";
+        return _voidDropletSprite;
     }
 
     private static Texture2D CreateLightningTexture()

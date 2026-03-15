@@ -319,6 +319,8 @@ internal sealed class OrbRuntime
 
     private void CollapseSlotsAfterRemoval(int removedSlotIndex)
     {
+        RefreshSlotVisual(_slots[removedSlotIndex]);
+
         for (int slotIndex = removedSlotIndex - 1; slotIndex >= LeftSlotIndex; slotIndex--)
         {
             OrbSlotRuntime fromSlot = _slots[slotIndex];
@@ -336,6 +338,8 @@ internal sealed class OrbRuntime
         }
 
         RefreshSlotVisual(_slots[LeftSlotIndex]);
+        RefreshSlotVisual(_slots[CenterSlotIndex]);
+        RefreshSlotVisual(_slots[RightSlotIndex]);
     }
 
     private void AssignInstanceToSlot(OrbSlotRuntime slot, OrbInstance instance, int targetSlotIndex, float duration)
@@ -347,7 +351,12 @@ internal sealed class OrbRuntime
 
     private static int GetInitialDamageForOrb(OrbTypeId typeId, int nailDamage)
     {
-        return typeId == OrbTypeId.White ? OrbCombatService.GetCeilHalfDamage(nailDamage) : 0;
+        return typeId switch
+        {
+            OrbTypeId.White => OrbCombatService.GetCeilHalfDamage(nailDamage),
+            OrbTypeId.Black => Mathf.Max(1, nailDamage),
+            _ => 0
+        };
     }
 
     private static void SetDashedRingVisible(OrbSlotRuntime slot, bool visible)

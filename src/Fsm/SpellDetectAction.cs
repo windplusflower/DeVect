@@ -8,9 +8,13 @@ public sealed class SpellDetectAction : FsmStateAction
 {
     public Action? OnFireballCast { get; set; }
 
+    public Action? OnDiveCast { get; set; }
+
     public Action? OnShriekCast { get; set; }
 
     public Func<bool>? ShouldConsumeFireballSpell { get; set; }
+
+    public Func<bool>? ShouldConsumeDiveSpell { get; set; }
 
     public Func<bool>? ShouldConsumeShriekSpell { get; set; }
 
@@ -23,6 +27,22 @@ public sealed class SpellDetectAction : FsmStateAction
             if (shouldConsumeShriek)
             {
                 OnShriekCast?.Invoke();
+                ConsumeSpellCost();
+                Fsm.Event("FSM CANCEL");
+                Finish();
+                return;
+            }
+
+            Finish();
+            return;
+        }
+
+        if (verticalInput < -0.1f)
+        {
+            bool shouldConsumeDive = ShouldConsumeDiveSpell?.Invoke() ?? false;
+            if (shouldConsumeDive)
+            {
+                OnDiveCast?.Invoke();
                 ConsumeSpellCost();
                 Fsm.Event("FSM CANCEL");
                 Finish();

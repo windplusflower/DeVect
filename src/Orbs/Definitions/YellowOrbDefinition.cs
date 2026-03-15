@@ -25,7 +25,7 @@ internal sealed class YellowOrbDefinition : IOrbDefinition
             return;
         }
 
-        context.Visuals.SpawnLightningVisual(context.Combat.GetLightningVisualPosition(target));
+        context.Visuals.SpawnLightningVisual(context.Combat.GetLightningImpactVisualPosition(target));
         context.LogDebug($"Yellow passive hit target {target.name} for {damage}.");
     }
 
@@ -43,7 +43,7 @@ internal sealed class YellowOrbDefinition : IOrbDefinition
             return;
         }
 
-        context.Visuals.SpawnLightningVisual(context.Combat.GetLightningVisualPosition(target));
+        context.Visuals.SpawnLightningVisual(context.Combat.GetLightningImpactVisualPosition(target));
         context.LogDebug($"Yellow evocation hit target {target.name} for {damage}.");
     }
 }

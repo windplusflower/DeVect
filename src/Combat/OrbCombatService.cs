@@ -34,6 +34,26 @@ internal sealed class OrbCombatService
         return candidates[index];
     }
 
+    public HealthManager? TryPickLowestHpEnemyInRange(HeroController hero)
+    {
+        List<HealthManager> candidates = FindAllEnemiesInRange(hero);
+        if (candidates.Count == 0)
+        {
+            return null;
+        }
+
+        HealthManager best = candidates[0];
+        for (int i = 1; i < candidates.Count; i++)
+        {
+            if (candidates[i].hp < best.hp)
+            {
+                best = candidates[i];
+            }
+        }
+
+        return best;
+    }
+
     public List<HealthManager> FindAllEnemiesInRange(HeroController hero)
     {
         List<HealthManager> candidates = new();
@@ -129,28 +149,47 @@ internal sealed class OrbCombatService
         return target.isDead || (!wasDead && target.hp < previousHp);
     }
 
+    public Vector3 GetLightningImpactVisualPosition(HealthManager target)
+    {
+        Vector3 anchor = GetOrbImpactAnchorPosition(target);
+        Vector2 offset = GetScaledImpactOffset(target, 0f, 1.12f, 0.9f, 1.45f);
+        return anchor + new Vector3(offset.x, offset.y, 0f);
+    }
+
     public Vector3 GetLightningVisualPosition(HealthManager target)
     {
-        float topOffset = 1.6f;
-        Collider2D collider = target.GetComponent<Collider2D>();
-        if (collider != null)
-        {
-            topOffset = Mathf.Max(topOffset, collider.bounds.extents.y + 0.9f);
-        }
-
-        return target.transform.position + new Vector3(0f, topOffset, 0f);
+        return GetLightningImpactVisualPosition(target);
     }
 
     public Vector3 GetGlassHitVisualPosition(HealthManager target)
     {
-        float topOffset = 1f;
+        return GetWhiteImpactVisualPosition(target);
+    }
+
+    public Vector3 GetVoidImpactVisualPosition(HealthManager target)
+    {
+        Vector3 anchor = GetOrbImpactAnchorPosition(target);
+        Vector2 offset = GetScaledImpactOffset(target, 0.54f, 0.74f, 0.38f, 0.88f);
+        return anchor + new Vector3(offset.x, offset.y, 0f);
+    }
+
+    public Vector3 GetOrbImpactAnchorPosition(HealthManager target)
+    {
+        float verticalOffset = 0.8f;
         Collider2D collider = target.GetComponent<Collider2D>();
         if (collider != null)
         {
-            topOffset = Mathf.Max(topOffset, collider.bounds.extents.y * 0.55f);
+            verticalOffset = Mathf.Clamp(collider.bounds.extents.y * 0.42f, 0.65f, 1.2f);
         }
 
-        return target.transform.position + new Vector3(0f, topOffset, 0f);
+        return target.transform.position + new Vector3(0f, verticalOffset, 0f);
+    }
+
+    public Vector3 GetWhiteImpactVisualPosition(HealthManager target)
+    {
+        Vector3 anchor = GetOrbImpactAnchorPosition(target);
+        Vector2 offset = GetScaledImpactOffset(target, -0.54f, 0.74f, 0.38f, 0.88f);
+        return anchor + new Vector3(offset.x, offset.y, 0f);
     }
 
     public static bool IsEnemyCollider(Collider2D collider)
@@ -184,6 +223,19 @@ internal sealed class OrbCombatService
     {
         Vector2 delta = enemyTransform.position - heroTransform.position;
         return Mathf.Atan2(delta.y, delta.x) * Mathf.Rad2Deg;
+    }
+
+    private static Vector2 GetScaledImpactOffset(HealthManager target, float baseX, float baseY, float minScale, float maxScale)
+    {
+        float scale = 1f;
+        Collider2D collider = target.GetComponent<Collider2D>();
+        if (collider != null)
+        {
+            float sizeBasis = Mathf.Max(collider.bounds.size.x, collider.bounds.size.y);
+            scale = Mathf.Clamp(sizeBasis * 0.45f, minScale, maxScale);
+        }
+
+        return new Vector2(baseX * scale, baseY * scale);
     }
 
     private static void DrawEnemySearchBounds(Vector3 heroPosition)

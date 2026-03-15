@@ -1,0 +1,284 @@
+# SDD Spec: 黑球实现与砸技能接管
+
+## 0. 🚨 Open Questions (MUST BE CLEAR BEFORE CODING)
+- None
+
+## 1. Requirements (Context)
+- **Goal**: 实现最后一个球种 `Black`，由小骑士的下砸法术触发生成/激发，图标为深紫色、带虚空气息与粘液质感的球；其被动不直接造成伤害，而是在每次触发时累计 `1x` 当前骨钉伤害；黑球被激发时，从攻击范围内选择当前血量最低的敌人，造成该球累计的全部伤害，并补充一套与虚空主题匹配的命中特效。
+- **In-Scope**:
+  - 接入下砸法术识别链路，使其可作为黑球的生成/激发入口。
+  - 新增 `BlackOrbDefinition`，明确黑球颜色、被动累计规则、激发选敌规则。
+  - 扩展球定义注册表，使黑球参与现有三槽运行时体系。
+  - 扩展运行时初始伤害逻辑，使黑球初始累计伤害符合“基础伤害 1 倍骨钉伤害”。
+  - 扩展战斗服务，支持“范围内最低血量目标”选择与黑球命中视觉锚点。
+  - 扩展视觉服务，新增黑球本体材质层与黑球命中特效，整体风格偏深紫 + 虚空粘液感。
+  - 保持现有白球、黄球功能与三槽位移动画行为不回退。
+  - 修复白球因被动耗尽而移除后，若左侧没有其他球补位，空槽未恢复虚线占位的问题。
+  - 继续增强白球与黑球的命中特效可见度，使其在实战中更容易被识别。
+  - 统一三种球命中特效的空间布局规则，避免黄/白/黑在同一敌人上出现位置语义割裂，并确保多特效同屏时能够稳定错开而不互相覆盖。
+  - 增加临时骨钉计数诊断日志，便于实机排查 `SlashHitHook` 去重、命中累计和被动触发链路是否符合预期。
+- **Out-of-Scope**:
+  - 不改动黄球与白球的伤害公式、触发条件、资源路径。
+  - 不新增配置菜单、存档迁移或额外资源文件依赖，优先沿用运行时代码绘制贴图。
+  - 不调整现有索敌范围矩形参数，除非实现黑球最低血量选敌所必需。
+  - 不改变“单次骨钉挥砍只记作 1 次被动计数”的既有设计语义；若底层 Hook 因同一挥砍多次回调导致超计数，需要修正为按挥砍去重。
+
+## 1.5 Code Map (Project Topology)
+- **Core Logic**:
+  - `src/Orbs/OrbSystem.cs`: 球系统总调度入口；当前只接收 fireball 与 shriek 两类施法事件，黑球落地必须从这里新增 `OnDiveCast()` 和对应消耗判定链路。
+  - `src/Fsm/SpellDetectAction.cs`: Spell Control FSM 注入动作；当前仅按纵向输入区分上吼与火球，`verticalInput < -0.1f` 分支尚未承载下砸识别，是黑球接管“砸”技能的关键切入点。
+  - `src/Orbs/Runtime/OrbRuntime.cs`: 三槽球实例的生成、强制插入、右侧挤出与初始伤害赋值入口；`GetInitialDamageForOrb(...)` 当前仅对白球赋初值，黑球基础累计伤害也需要在此接入。
+  - `src/Combat/OrbCombatService.cs`: 统一负责范围索敌、伤害结算与特效定位；当前只有“随机敌人”与“全范围敌人”查询，缺少“最低血量敌人”选择能力。
+  - `src/Visual/OrbVisualService.cs`: 球体贴图与命中特效的唯一视觉实现位置；当前已实现玻璃白球与闪电黄球，需要在同一服务中扩展黑球球体材质层、虚空命中特效与动画参数。
+- **Entry Points**:
+  - `DeVect.cs`: `InjectSpellDetector(...)` 将 `SpellDetectAction` 注入 Spell Control FSM，是新增下砸法术接管回调的根入口。
+  - `DeVect.cs`: `HandleFireballCast()` / `HandleShriekCast()` 已分别接黄球与白球；黑球需要对齐这一模式增加 `HandleDiveCast()` 与 `ShouldConsumeDiveSpell()`。
+  - `src/Orbs/Definitions/OrbDefinitionRegistry.cs`: 注册所有球定义；当前只注册 `YellowOrbDefinition` 与 `WhiteOrbDefinition`，黑球尚未进入运行时可实例化集合。
+- **Data Models**:
+  - `src/Orbs/Definitions/OrbTypeId.cs`: 已预留 `Black = 2`，说明球种枚举层已准备好，无需新增枚举值。
+  - `src/Orbs/Runtime/OrbInstance.cs`: `CurrentDamage` 是黑球累计伤害的现成承载字段；被动可直接累加、激发后可直接读出结算。
+  - `src/Orbs/OrbTriggerContext.cs`: 聚合当前 Hero、骨钉伤害、战斗/视觉服务，是黑球定义读取基础伤害与调用最低血量索敌的上下文入口。
+- **Dependencies**:
+  - `HutongGames.PlayMaker` / Spell Control FSM: 下砸接管依赖现有法术识别注入链路。
+  - `Assembly-CSharp.HealthManager`: 黑球激发要按 `hp` 选择最低血量敌人，依赖该类型公开字段与命中接口。
+  - `UnityEngine.SpriteRenderer` / `Texture2D` / `Color`: 黑球本体与虚空命中特效预计继续采用运行时绘制与分层渲染。
+  - `Modding.ModHooks.SlashHitHook`: 黑球被动触发频率仍沿用“每 3 次骨钉命中触发全部现存球被动”的总机制，不需要新增 Hook。
+- **Observed Reality**:
+  - 当前工程已经有 `OrbTypeId.Black`，但没有 `src/Orbs/Definitions/BlackOrbDefinition.cs`，因此黑球仍处于“枚举存在、行为缺失”的半接入状态。
+  - 当前 Spell 检测逻辑在下输入分支不会生成任何球，也不会消耗法术来转化为黑球。
+  - 当前球体缩放常量在 `OrbRuntime` 中统一复用，新增黑球通常不需要单独扩展槽位动画系统。
+  - 当前视觉系统已经支持纯代码生成贴图与瞬时特效，黑球图标与特效可以先采用运行时绘制，避免引入新资源链路。
+  - 最新实测表明：在 3 个黑球、骨钉伤害为 `8` 的情况下，只进行 `1` 次骨钉攻击后再激发，黑球会打出 `24` 伤害；这说明当前骨钉计数很可能被同一次挥砍的多次 `SlashHitHook` 回调放大，导致黑球被动在单次攻击中被错误触发两次。
+  - 最新实测表明：白球在 `CurrentDamage` 减到 `0` 后被 `RemoveOrb(...)` 移除时，如果被移除槽位左侧没有其他球，`CollapseSlotsAfterRemoval(...)` 只刷新了最左槽位，导致被清空的原槽位虚线环不会重新显示。
+  - 当前白球命中特效与黑球命中特效都存在“战斗中辨识度不够”的问题：白球玻璃效果偏薄，黑球虽然已换掉白球同构方案，但整体亮度与尺寸仍偏保守。
+  - 最新实测表明：当前骨钉去重方案只按 `slash.GetInstanceID()` 判重，没有时间窗口；如果游戏复用同一个 `slash` 对象承载多次挥砍，则第一次命中后，后续使用同一对象的正常挥砍都会被误判为重复命中，从而不再累计 `_nailHitCounter`。
+  - 该问题会直接表现为：下劈似乎不触发被动；以及玩家在“每次攻击后都挨打一下”的情况下，只有当受击过程间接导致下一次挥砍换了新的 `slash` 实例时，计数才偶尔恢复，看起来像“受击重置计数”。
+  - 最新反馈表明：前一轮对白球空槽虚线恢复的修复没有真正落地到 `src/Orbs/Runtime/OrbRuntime.cs`；当前 `CollapseSlotsAfterRemoval(...)` 仍只在结尾刷新最左槽位，因此“白球归零消失、左侧无球补位时原槽位不显示虚线”的问题仍然存在。
+  - 用户不需要 `ModLog.txt` 事后排查；临时日志已经完成排障目标，本轮应全部移除，避免污染运行期输出。
+
+## 2. Architecture (Optional - Populated in INNOVATE)
+- 本任务暂不进入 INNOVATE；优先沿用现有“法术识别 -> OrbSystem 分发 -> OrbDefinition 定义行为 -> Combat/Visual 服务提供能力”的分层结构。
+- 黑球不应新增独立运行时类型；直接复用 `OrbInstance.CurrentDamage` 作为累计伤害容器，可最大限度保持三球体系一致性。
+- 最低血量索敌建议放入 `OrbCombatService`，避免把筛选逻辑散落到球定义内部。
+
+## 3. Detailed Design & Implementation (Populated in PLAN)
+### 3.1 Data Structures & Interfaces
+- `File: src/Orbs/Definitions/BlackOrbDefinition.cs`
+  - 新增类型：`internal sealed class BlackOrbDefinition : IOrbDefinition`
+  - 固定成员签名：
+    - `public OrbTypeId TypeId => OrbTypeId.Black;`
+    - `public string DisplayName => "Black";`
+    - `public Color OrbColor => new(0.2f, 0.09f, 0.28f, 1f);`
+    - `public void OnPassive(OrbTriggerContext context, OrbInstance instance)`
+    - `public void OnEvocation(OrbTriggerContext context, OrbInstance instance)`
+  - 行为约束：
+    - `OnPassive(...)` 不造成伤害，只执行 `instance.CurrentDamage += Mathf.Max(1, context.NailDamage)`。
+    - `OnPassive(...)` 成功触发后，必须播放一次“蓄积感”黑球短特效，位置基于 Hero 或球体视觉层，不得对敌人结算伤害。
+    - `OnEvocation(...)` 通过 `context.Combat.TryPickLowestHpEnemyInRange(context.Hero)` 选择目标。
+    - 若无目标或 `instance.CurrentDamage <= 0`，则不造成伤害，但允许记录调试日志。
+    - 成功命中后造成 `instance.CurrentDamage` 点伤害，并播放黑球命中特效。
+    - 黑球激发后不需要手动扣减累计值，因为该球本身会作为“被挤出球”离场。
+
+- `File: src/Combat/OrbCombatService.cs`
+  - 保留现有签名不变：
+    - `public HealthManager? TryPickRandomEnemyInRange(HeroController hero)`
+    - `public List<HealthManager> FindAllEnemiesInRange(HeroController hero)`
+    - `public bool TryDealOrbDamage(HeroController hero, HealthManager target, int damage, AttackTypes attackType)`
+  - 新增方法签名：
+    - `public HealthManager? TryPickLowestHpEnemyInRange(HeroController hero)`
+    - `public Vector3 GetVoidImpactVisualPosition(HealthManager target)`
+    - `public Vector3 GetOrbImpactAnchorPosition(HealthManager target)`
+    - `public Vector3 GetLightningImpactVisualPosition(HealthManager target)`
+    - `public Vector3 GetWhiteImpactVisualPosition(HealthManager target)`
+  - 行为约束：
+    - `TryPickLowestHpEnemyInRange(...)` 必须基于 `FindAllEnemiesInRange(hero)` 的结果筛选。
+    - 选择规则优先按 `healthManager.hp` 最小值；若存在并列，取列表中最先出现的目标，避免引入额外随机性。
+    - 三种命中特效位置必须共享同一个 `GetOrbImpactAnchorPosition(...)` 基准锚点，再做球种专属偏移，不能各自独立计算完全不同的基准。
+    - 偏移布局采用用户确认的固定方案：黄球 `正上`、白球 `左上（比黄略低）`、黑球 `右上（与白同高）`。
+    - `GetLightningImpactVisualPosition(...)` 返回黄球正上命中位；`GetWhiteImpactVisualPosition(...)` 返回白球左上位；`GetVoidImpactVisualPosition(...)` 返回黑球右上位。
+    - 白/黑的垂直高度必须一致，且都低于黄球；白/黑的水平偏移应左右对称。
+    - 所有偏移都允许按敌人碰撞盒尺寸做轻微缩放，但必须设置上下限，避免小怪重叠或大怪过散。
+
+- `File: src/Visual/OrbVisualService.cs`
+  - 保留现有签名：
+    - `public SpriteRenderer CreateOrbRenderer(string name, OrbTypeId typeId, Color color)`
+  - 新增方法签名：
+    - `public void SpawnVoidImpactVisual(Vector3 worldPosition)`
+    - `public void SpawnBlackOrbChargeVisual(Vector3 worldPosition)`
+  - 新增私有方法签名：
+    - `private static Sprite CreateVoidOrbSprite()`
+    - `private static Sprite CreateVoidRippleSprite()`
+    - `private static Sprite CreateVoidDropletSprite()`
+    - `private static void AddBlackOrbMaterialLayers(Transform parent, Color baseColor)`
+  - 调整实现分支：
+    - `CreateOrbRenderer(...)` 中，`OrbTypeId.Black` 必须使用 `CreateVoidOrbSprite()`，并调用 `AddBlackOrbMaterialLayers(...)`。
+    - `OrbTypeId.White` 仍走现有玻璃分支；`OrbTypeId.Yellow` 仍走现有普通球分支；不得互相污染。
+  - 视觉约束：
+    - 黑球本体色调为深紫 + 黑色过渡，表面应有不规则高光/边缘流体感，避免与黄球圆球质感重复。
+    - `SpawnVoidImpactVisual(...)` 必须体现“虚空粘液爆开 + 暗色涟漪”，可由 1 个中心闪光、1 个扩散环、若干液滴碎片组成。
+    - `SpawnBlackOrbChargeVisual(...)` 需要较轻量，目标是提示“累计伤害 +1 倍骨钉”，建议做短促收缩/脉冲效果。
+    - 白球命中特效本轮需要整体增强：允许增大玻璃闪光/折射环/碎片的尺寸、时长、亮度，但不得从“玻璃碎裂”主题偏移成闪电或虚空。
+    - 黑球命中特效本轮需要整体增强：允许增大裂隙主体、提高 bloom 亮度、增加上浮拖尾或纵向拉伸感，但不得回退成与白球相似的爆散碎片语言。
+    - 三种球即使同帧命中同一个敌人，也必须通过固定空间分位稳定错开，而不是依赖随机偏移避免覆盖。
+
+- `File: src/Orbs/Definitions/OrbDefinitionRegistry.cs`
+  - 构造注入数组中必须新增：`new BlackOrbDefinition()`
+  - 其注册顺序允许放在黄/白之间，但必须确保 `OrbTypeId.Black` 可被 `Get(...)` 正常解析。
+
+- `File: src/Orbs/Runtime/OrbRuntime.cs`
+  - 保留现有签名：
+    - `public bool TrySpawnOrbInNextAvailableSlot(OrbTypeId typeId, int nailDamage, OrbDefinitionRegistry definitions)`
+    - `public bool TryForceInsertOrbFromLeft(OrbTypeId newTypeId, int nailDamage, OrbDefinitionRegistry definitions, out OrbInstance? evictedOrb)`
+    - `private static int GetInitialDamageForOrb(OrbTypeId typeId, int nailDamage)`
+  - 调整约束：
+    - `GetInitialDamageForOrb(...)` 对 `OrbTypeId.Black` 返回 `Mathf.Max(1, nailDamage)`。
+    - `OrbTypeId.White` 继续返回半骨钉伤害；`OrbTypeId.Yellow` 继续返回 `0`。
+    - 其余槽位动画、缩放、插入顺序逻辑不做结构性修改。
+    - `RemoveOrb(...)` / `CollapseSlotsAfterRemoval(...)` 必须保证任意被清空槽位在无占用时都会恢复虚线占位显示，而不依赖“左侧必须有球发生补位”。
+    - 对白球归零移除场景，`removedSlotIndex` 对应槽位必须在移除后立即恢复虚线；收尾阶段应统一刷新三个位，避免遗漏中心位或右位。
+
+- `File: src/Orbs/OrbSystem.cs`
+  - 新增公开方法签名：
+    - `public void OnDiveCast()`
+    - `public bool ShouldConsumeDiveSpell()`
+  - 调整现有公开方法签名：
+    - `public void OnSlashHit(Collider2D otherCollider, GameObject? slash)`
+  - 新增字段：
+    - `private int _lastProcessedSlashInstanceId;`
+    - `private float _lastProcessedSlashTime;`
+    - `private const float SlashHitDedupWindowSeconds = 0.08f;`
+  - 调整现有私有方法复用：
+    - `private void HandleSpellCast(OrbTypeId spawnType)` 继续作为统一入口，黑球复用该方法，传入 `OrbTypeId.Black`。
+  - 行为约束：
+    - `OnSlashHit(...)` 必须按“`slash` 对象实例 + 短时间窗口”联合去重：只有当 `slash` 实例相同且距离上次处理时间小于 `SlashHitDedupWindowSeconds` 时，才视为同一挥砍的重复回调。
+    - 若同一 `slash` 实例在时间窗口之外再次命中，必须允许其作为新挥砍正常累计计数，以兼容游戏复用 slash 对象的情况。
+    - 若 `slash == null`，允许回退到不基于实例的旧逻辑，但正常路径应优先使用 `slash.GetInstanceID()` + 时间窗口去重。
+    - 临时诊断日志已完成使命，本轮必须从 `OnSlashHit(...)` 移除，不再向任何日志通道输出计数诊断信息。
+    - `OnDiveCast()` 只调用 `HandleSpellCast(OrbTypeId.Black)`。
+    - `ShouldConsumeDiveSpell()` 语义与现有火球/上吼保持一致：仅在系统可处理且 Hero 存在时返回 `true`。
+
+- `File: src/Fsm/SpellDetectAction.cs`
+  - 新增属性签名：
+    - `public Action? OnDiveCast { get; set; }`
+    - `public Func<bool>? ShouldConsumeDiveSpell { get; set; }`
+  - 调整 `OnEnter()` 分支约束：
+    - `verticalInput > 0.1f` 仍为上吼逻辑。
+    - `verticalInput < -0.1f` 改为下砸逻辑：先判断 `ShouldConsumeDiveSpell?.Invoke()`，若为真则调用 `OnDiveCast?.Invoke()`、扣蓝、发送 `FSM CANCEL` 并 `Finish()`。
+    - 中立输入 `-0.1f <= verticalInput <= 0.1f` 继续保持火球分支。
+    - 不得再让下输入落入火球逻辑。
+
+- `File: DeVect.cs`
+  - 调整现有私有方法签名：
+    - `private void OnSlashHit(Collider2D otherCollider, GameObject slash)`
+  - 在 `InjectSpellDetector(...)` 中新增注入赋值：
+    - `OnDiveCast = HandleDiveCast`
+    - `ShouldConsumeDiveSpell = ShouldConsumeDiveSpell`
+  - 新增私有方法签名：
+    - `private void HandleDiveCast()`
+    - `private bool ShouldConsumeDiveSpell()`
+  - 行为约束：
+    - `OnSlashHit(...)` 必须把原始 `slash` 对象继续透传给 `OrbSystem`，不能在 Mod 层丢失该去重信息。
+    - `HandleDiveCast()` 防御条件需与 `HandleFireballCast()` / `HandleShriekCast()` 保持一致。
+    - `ShouldConsumeDiveSpell()` 的返回逻辑需与 `ShouldConsumeFireballSpell()` 保持一致，但调用 `_orbSystem?.ShouldConsumeDiveSpell()`。
+    - 不得改动现有火球/上吼注入行为。
+
+### 3.2 Behavioral Rules
+- 黑球基础累计伤害：生成时即为 `1x` 当前骨钉伤害。
+- 黑球被动：每逢“骨钉累计命中 3 次触发全部球被动”时，黑球只累计，不伤敌；每次累计额为 `1x` 当前骨钉伤害。
+- 黑球被动触发频率必须与黄球、白球完全对齐：只能由 `TriggerPassiveOrbs(...)` 在“全局骨钉命中计数达到 3 的倍数”时触发一次；不得存在按单次命中额外累计的隐藏路径。
+- 骨钉计数语义必须以“挥砍次数”而不是“`SlashHitHook` 回调次数”为准；同一挥砍命中到同一个敌人的多个碰撞体，或一次挥砍产生多次命中回调，都只能把 `_nailHitCounter` 记作 `1`。
+- 去重语义必须允许“同一个 slash 实例被后续挥砍复用”的现实：不能仅凭实例 ID 永久屏蔽后续所有同 ID 命中。
+- 黑球激发：当三球已满且再次施放下砸，右侧被挤出的黑球若存在，则以其 `CurrentDamage` 为最终伤害，对范围内最低 `hp` 目标造成一次伤害。
+- 黑球命中目标筛选：只在既有矩形范围内取目标；不可跨范围索敌。
+- 黑球命中特效：只在 `TryDealOrbDamage(...)` 返回成功时生成，避免空放特效。
+- 黑球被动触发时不在小骑士身上生成任何额外提示特效，保持与黄球、白球的被动表现一致。
+- 黑球命中特效必须与白球的“中心闪光 + 扩散环 + 碎片抛射”形式区分开，避免视觉语言重复；新方案应更偏“虚空穿刺/吞没/裂隙”而不是“爆散碎裂”。
+- 法术替换语义：黑球是“取代小骑士的砸”，因此在 Spell FSM 注入层面，下输入分支被本模组接管后，应与现有火球/上吼替换模式一致，走扣蓝 + `FSM CANCEL`。
+- 白球空槽显示语义：任何球因被动耗尽或其他原因被移除后，最终未被球实例占用的槽位都必须重新显示虚线环，不允许出现“空槽无球也无虚线”的状态。
+- 特效可见度语义：白球与黑球命中特效都应优先保证战斗中第一眼可识别，而不是追求过度克制的细节；允许在不改变主题的前提下适当放大、提亮、延长。
+- 命中特效布局语义：黄球固定在敌人上方主位；白球固定在左上次位；黑球固定在右上次位；白黑同高，黄球略高于白黑。
+- 命中特效避让语义：三种球的错位必须是规则化、可预期的固定偏移，不使用随机散点方案。
+
+### 3.3 Implementation Checklist
+- [x] 1. 更新 `mydocs/specs/2026-03-15_14-09_BlackOrbImplementation.md`，固化黑球入口、累计规则、最低血量索敌与视觉方案。
+- [x] 2. 修改 `src/Fsm/SpellDetectAction.cs`，新增下砸识别属性与 `verticalInput < -0.1f` 分支，避免下输入继续落入火球逻辑。
+- [x] 3. 修改 `DeVect.cs`，把 `OnDiveCast` / `ShouldConsumeDiveSpell` 注入 `SpellDetectAction`，并新增对应私有方法。
+- [x] 4. 修改 `src/Orbs/OrbSystem.cs`，新增 `OnDiveCast()` / `ShouldConsumeDiveSpell()`，并把黑球接入统一 `HandleSpellCast(OrbTypeId.Black)` 流程。
+- [x] 5. 新增 `src/Orbs/Definitions/BlackOrbDefinition.cs`，实现黑球的基础属性、被动累计逻辑、激发最低血量索敌伤害逻辑。
+- [x] 6. 修改 `src/Orbs/Definitions/OrbDefinitionRegistry.cs`，注册 `BlackOrbDefinition`。
+- [x] 7. 修改 `src/Orbs/Runtime/OrbRuntime.cs`，让黑球初始累计伤害为 `Mathf.Max(1, nailDamage)`。
+- [x] 8. 修改 `src/Combat/OrbCombatService.cs`，新增最低血量敌人选择与黑球命中特效位置方法。
+- [x] 9. 修改 `src/Visual/OrbVisualService.cs`，新增黑球本体贴图/材质层、蓄积特效与虚空命中特效，并在 `CreateOrbRenderer(...)` 中接入黑球分支。
+- [x] 10. 运行 `dotnet build -c Debug`，验证黑球接入后编译通过；若实现现实与 Spec 不一致，先回写 Spec 再继续。
+- [ ] 11. 复核 `src/Orbs/OrbSystem.cs` 与 `src/Orbs/Definitions/BlackOrbDefinition.cs`，确认黑球累计只发生在 `3` 次骨钉命中触发的统一被动链路上；若存在额外累计路径，移除之。
+- [x] 11. 复核 `src/Orbs/OrbSystem.cs` 与 `src/Orbs/Definitions/BlackOrbDefinition.cs`，确认黑球累计只发生在 `3` 次骨钉命中触发的统一被动链路上；若存在额外累计路径，移除之。
+- [x] 12. 修改 `src/Orbs/Definitions/BlackOrbDefinition.cs`，移除黑球被动时附着在小骑士身上的蓄积特效，保持与黄球/白球一致。
+- [x] 13. 修改 `src/Visual/OrbVisualService.cs` 与 `src/Orbs/Definitions/BlackOrbDefinition.cs`，重做黑球命中特效，避免沿用白球同构的“中心闪/扩散环/碎片”语言。
+- [x] 14. 运行 `dotnet build -c Debug`，验证本轮修正编译通过。
+- [x] 15. 修改 `DeVect.cs` 与 `src/Orbs/OrbSystem.cs`，把 `slash` 对象透传进骨钉计数逻辑，并按同一挥砍实例去重，修复单次攻击被记成多次命中的问题。
+- [x] 16. 运行 `dotnet build -c Debug`，验证挥砍去重修复编译通过。
+- [x] 17. 修改 `src/Orbs/Runtime/OrbRuntime.cs`，修复白球耗尽移除后空槽未恢复虚线占位的问题。
+- [x] 18. 修改 `src/Visual/OrbVisualService.cs`，增强白球命中特效的亮度、尺寸或持续时间，提高玻璃碎裂辨识度。
+- [x] 19. 修改 `src/Visual/OrbVisualService.cs`，增强黑球命中特效的亮度、纵向裂隙感或拖尾表现，提高虚空命中辨识度。
+- [x] 20. 运行 `dotnet build -c Debug`，验证本轮白球空槽修复与特效增强编译通过。
+- [x] 21. 修改 `src/Combat/OrbCombatService.cs`，抽象三种球共享的命中特效基准锚点，并按“黄上、白左上、黑右上”规则输出各自命中位置。
+- [x] 22. 修改 `src/Orbs/Definitions/YellowOrbDefinition.cs`、`src/Orbs/Definitions/WhiteOrbDefinition.cs`、`src/Orbs/Definitions/BlackOrbDefinition.cs`，改为调用新的分位命中定位方法。
+- [x] 23. 运行 `dotnet build -c Debug`，验证特效定位统一后的编译通过。
+- [x] 24. 修改 `src/Orbs/OrbSystem.cs`，把骨钉去重从“仅按 slash 实例 ID”升级为“实例 ID + 短时间窗口”，修复下劈/普通平 A 后续挥砍不再累计的问题。
+- [x] 25. 运行 `dotnet build -c Debug`，验证新的挥砍去重逻辑编译通过。
+- [x] 26. 修改 `src/Orbs/OrbSystem.cs`，增加临时骨钉计数诊断日志，输出去重判定、累计值与被动触发信息。
+- [x] 27. 运行 `dotnet build -c Debug`，验证诊断日志改动编译通过。
+- [x] 28. 修改 `src/Orbs/OrbSystem.cs`，移除上一轮用于排障的临时骨钉计数日志与开关字段，保留去重主逻辑不变。
+- [x] 29. 修改 `src/Orbs/Runtime/OrbRuntime.cs`，真正修复白球归零移除后原槽位虚线不恢复的问题。
+- [x] 30. 运行 `dotnet build -c Debug`，验证本轮日志清理与白球空槽修复编译通过。
+
+### 3.4 Verification Criteria
+- 下砸施法会走黑球生成/激发逻辑，不再误触发火球分支。
+- 三槽未满时，下砸会生成黑球；三槽已满时，下砸会触发“左插入 -> 右侧挤出”的现有激发流程。
+- 黑球生成时 `CurrentDamage` 等于当前骨钉伤害，且至少为 `1`。
+- 黑球每次被动触发只累计伤害，不对敌人直接造成伤害。
+- 黑球激发时，命中目标应为攻击范围内 `hp` 最低的敌人；并列时使用候选列表首个目标。
+- 黑球激发伤害应等于该球累计值，不额外乘系数。
+- 黑球球体外观必须明显区别于黄球/白球，呈现深紫、虚空、粘液感。
+- 黑球命中后必须出现新的虚空系特效；白球玻璃碎裂与黄球闪电特效不应被复用为主视觉。
+
+### 3.5 Execution Notes
+- 已在 `src/Fsm/SpellDetectAction.cs` 中新增 `OnDiveCast` / `ShouldConsumeDiveSpell`，并将 `verticalInput < -0.1f` 独立为下砸分支；下输入不再落入火球逻辑。
+- 已在 `DeVect.cs` 与 `src/Orbs/OrbSystem.cs` 中打通黑球施法入口：下砸现在会走 `OrbTypeId.Black` 的统一生成/激发流程。
+- 已新增 `src/Orbs/Definitions/BlackOrbDefinition.cs`：黑球生成初始伤害为 `1x` 骨钉，被动只累计，激发时命中范围内最低 `hp` 敌人。
+- 已在 `src/Combat/OrbCombatService.cs` 中补充最低血量选敌方法与黑球命中特效锚点计算。
+- 已在 `src/Visual/OrbVisualService.cs` 中补充黑球球体贴图、材质层、蓄积脉冲特效与虚空爆裂命中特效，整体风格为深紫+虚空粘液感。
+- 已执行 `dotnet build -c Debug`，结果为成功，`0` 警告、`0` 错误。
+- 最新用户反馈表明：当前黑球被动视觉提示会让人误判为“每次命中都在叠层”，且命中特效与白球过于同构；本轮需回收该视觉并重做命中表现。
+- 已复核累计路径：当前黑球 `CurrentDamage += ...` 只出现在 `src/Orbs/Definitions/BlackOrbDefinition.cs:17`，而 `OnPassive(...)` 仅由 `src/Orbs/OrbSystem.cs` 的 `TriggerPassiveOrbs(...)` 统一触发；逻辑上仍是“骨钉命中 3 次触发一次被动”，没有单次命中额外叠层代码路径。
+- 已移除黑球被动时挂在小骑士身上的蓄积提示特效，避免玩家误读为“每次平 A 都在即时叠层”。
+- 已将黑球命中特效从“爆环+碎片”改为“短促虚空裂隙 + 暗色 bloom + 上浮 wisps”，与白球玻璃碎裂视觉语言显式区分。
+- 已完成本轮修正后的构建验证：`dotnet build -c Debug` 成功，`0` 警告、`0` 错误。
+- 根据最新实测，真正的问题更像是同一挥砍触发了多次 `SlashHitHook`，而不是黑球被动链路本身有额外入口；因此下一步修复点应落在骨钉计数去重，而不是黑球伤害公式。
+- 已在 `DeVect.cs` 中把原始 `slash` 对象继续透传到 `src/Orbs/OrbSystem.cs`。
+- 已在 `src/Orbs/OrbSystem.cs` 中新增 `_lastProcessedSlashInstanceId` 去重：同一 `slash` 实例触发的重复 `SlashHitHook` 只会计数一次；场景切换、停机、重置时会清空该状态。
+- 已完成挥砍去重修复后的构建验证：`dotnet build -c Debug` 成功，`0` 警告、`0` 错误。
+- 最新用户反馈新增两项后续工作：其一是白球耗尽移除后的空槽虚线恢复 bug；其二是白球与黑球命中特效还需进一步强化可见度。
+- 已在 `src/Orbs/Runtime/OrbRuntime.cs` 中修复空槽显示：`CollapseSlotsAfterRemoval(...)` 现在会先刷新被移除槽位，并在收尾时统一刷新左/中/右三个位，确保没有补位时虚线也会恢复。
+- 已在 `src/Visual/OrbVisualService.cs` 中增强白球命中特效：提高闪光、折射环与碎片的尺寸、亮度和持续时间，使玻璃命中更明显。
+- 已在 `src/Visual/OrbVisualService.cs` 中增强黑球命中特效：放大中心 bloom、拉高裂隙主体、强化上浮 wisps 的亮度和拖尾感，使虚空命中更醒目。
+- 已完成本轮修改后的构建验证：`dotnet build -c Debug` 成功，`0` 警告、`0` 错误。
+- 用户已确认下一轮命中特效定位方案：黄球 `正上`；白球 `左上` 且比黄球略低；黑球 `右上` 且与白球同高。后续实现必须严格遵循该分位规则。
+- 已在 `src/Combat/OrbCombatService.cs` 中抽象共享命中锚点 `GetOrbImpactAnchorPosition(...)`，并新增黄/白/黑三种固定分位定位；偏移会按敌人碰撞盒尺寸轻微缩放，并带上下限，避免小怪重叠或大怪过散。
+- 已在 `src/Orbs/Definitions/YellowOrbDefinition.cs`、`src/Orbs/Definitions/WhiteOrbDefinition.cs` 中切换到新的分位命中位置：黄球使用正上位，白球使用左上位；黑球继续使用右上位方法。
+- 实施过程中首次构建暴露了 `GetLightningImpactVisualPosition(...)` 签名未补齐的问题；已先补齐 `OrbCombatService` 公共方法后重新构建。
+- 已完成本轮特效定位统一后的构建验证：`dotnet build -c Debug` 成功，`0` 警告、`0` 错误。
+- 最新用户反馈表明：当前“仅按 slash 实例 ID 去重”的方案过于粗暴，导致后续复用同一 slash 对象的正常挥砍不再累计；本轮必须把去重升级为“实例 + 时间窗口”模型。
+- 已在 `src/Orbs/OrbSystem.cs` 中将骨钉去重升级为“同一 slash 实例 + `0.08s` 时间窗口”联合判定：仅当实例相同且命中发生在极短窗口内时才视为同一挥砍的重复回调；窗口之外则允许再次累计。
+- 已同步把 `_lastProcessedSlashTime` 在场景切换、停机、重置时清零，避免状态残留。
+- 已完成本轮修复后的构建验证：`dotnet build -c Debug` 成功，`0` 警告、`0` 错误。
+- 用户已要求增加临时日志用于实机排查，因此下一步需要把 `OnSlashHit(...)` 的去重与累计决策显式写入 `ModLog.txt`。
+- 诊断日志第一次落地构建时，若把开关写成 `const true`，会因条件分支恒定而触发不可达代码告警；实际实现需要改为非 `const` 布尔开关，既保留快速开关能力，也避免新增编译告警。
+- 已在 `src/Orbs/OrbSystem.cs` 中加入临时日志：`skip` 记录去重跳过，`count` 记录累计后的 `_nailHitCounter`，`trigger` 记录被动触发与当前活跃球数；日志统一走 `_logDebug`，会进入 `ModLog.txt`。
+- 已将日志开关改为非 `const` 的静态布尔字段，避免不可达代码告警。
+- 已完成日志版本的最终构建验证：`dotnet build -c Debug` 成功，`0` 警告、`0` 错误。
+- 当前用户已确认计数问题修复完成，因此临时日志需要完全回收。
+- 白球空槽问题经复查确认仍未落地修复，下一步必须直接修改 `CollapseSlotsAfterRemoval(...)` 的刷新策略，而不是停留在 Spec 描述层。
+- 已在 `src/Orbs/OrbSystem.cs` 中移除临时 `SlashCounter` 诊断日志与开关字段；当前仅保留实际去重逻辑，不再污染运行期日志。
+- 已在 `src/Orbs/Runtime/OrbRuntime.cs` 中修复白球空槽显示：移除后会先刷新原槽位，并在收尾阶段统一刷新左/中/右三个槽位，确保“无补位时原位恢复虚线”。
+- 已完成本轮修改后的构建验证：`dotnet build -c Debug` 成功，`0` 警告、`0` 错误。
