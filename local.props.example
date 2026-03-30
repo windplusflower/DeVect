@@ -6,7 +6,10 @@
     <!-- Optional: override when MMHOOK*.dll live outside GameDir -->
     <!-- <ApiDir>/absolute/path/to/moddingapi/extracted</ApiDir> -->
 
-    <!-- Optional: override the post-build copy destination -->
+    <!-- Optional: override the post-build mod install destination -->
     <!-- <InstallDir>$(GameDir)/Mods/DeVect</InstallDir> -->
+
+    <!-- Optional: override where zip/hash packaging files are written -->
+    <!-- <PackageDir>$(MSBuildProjectDirectory)/artifacts/Debug</PackageDir> -->
   </PropertyGroup>
 </Project>
