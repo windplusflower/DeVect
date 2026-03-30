@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using DeVect.Combat;
 using DeVect.Fsm;
 using DeVect.Orbs;
 using HutongGames.PlayMaker;
@@ -35,8 +34,8 @@ public partial class DeVectMod : Mod, IGlobalSettings<DeVectSettings>, IMenuMod,
         EnsureOrbSystem();
 
         ModHooks.BeforeSavegameSaveHook += OnBeforeSavegameSave;
+        ModHooks.AfterTakeDamageHook += OnHeroAfterTakeDamage;
         ModHooks.HeroUpdateHook += OnHeroUpdate;
-        ModHooks.SlashHitHook += OnSlashHit;
         On.PlayMakerFSM.OnEnable += OnPlayMakerFsmEnable;
         UnityEngine.SceneManagement.SceneManager.activeSceneChanged += OnActiveSceneChanged;
         Application.quitting += OnApplicationQuitting;
@@ -47,8 +46,8 @@ public partial class DeVectMod : Mod, IGlobalSettings<DeVectSettings>, IMenuMod,
     public void Unload()
     {
         ModHooks.BeforeSavegameSaveHook -= OnBeforeSavegameSave;
+        ModHooks.AfterTakeDamageHook -= OnHeroAfterTakeDamage;
         ModHooks.HeroUpdateHook -= OnHeroUpdate;
-        ModHooks.SlashHitHook -= OnSlashHit;
         On.PlayMakerFSM.OnEnable -= OnPlayMakerFsmEnable;
         UnityEngine.SceneManagement.SceneManager.activeSceneChanged -= OnActiveSceneChanged;
         Application.quitting -= OnApplicationQuitting;
@@ -103,15 +102,21 @@ public partial class DeVectMod : Mod, IGlobalSettings<DeVectSettings>, IMenuMod,
         _orbSystem?.OnHeroUpdate(hero, Time.deltaTime);
     }
 
-    private void OnSlashHit(Collider2D otherCollider, GameObject slash)
+    private int OnHeroAfterTakeDamage(int hazardType, int damageAmount)
     {
-        if (!_settings.Enabled || _isShuttingDown || !OrbCombatService.IsEnemyCollider(otherCollider))
+        if (!_settings.Enabled || _isShuttingDown)
         {
-            return;
+            return damageAmount;
+        }
+
+        if (damageAmount <= 0)
+        {
+            return damageAmount;
         }
 
         EnsureOrbSystem();
-        _orbSystem?.OnSlashHit(otherCollider, slash);
+        _orbSystem?.OnHeroTookDamage(hazardType, damageAmount);
+        return damageAmount;
     }
 
     private void OnPlayMakerFsmEnable(On.PlayMakerFSM.orig_OnEnable orig, PlayMakerFSM self)

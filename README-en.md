@@ -11,7 +11,7 @@ Instead of casting the three vanilla spells directly, you convert them into thre
 - Fireball spells create a `Yellow Orb`
 - Shriek spells create a `White Orb`
 - Dive spells create a `Black Orb`
-- Every `3` valid nail hits, all active orbs trigger their own `passive` once
+- Whenever the Knight actually takes one instance of normal enemy/contact damage, the system advances `1` round and every active orb triggers its own `passive` once
 - If your slots are full, casting again pushes the rightmost orb out and triggers that orb's `evocation`
 
 The result keeps Hollow Knight's spell inputs, but turns combat into a more Defect-like rhythm of storing, cycling, and evoking orbs.
@@ -134,13 +134,13 @@ Additional notes:
 
 - Yellow is the most stable orb and works best as repeatable single-target pressure
 - White is better for crowd control and sustained AoE pacing
-- Black gets the most value when you can consistently land nail hits, trigger passives, build a large stored orb, and then force an evocation at the right moment
+- Black gets the most value when you can convert repeated enemy hits into round advances, trigger passives, build a large stored orb, and then force an evocation at the right moment
 - If you only have the white-tier version of a spell, the matching orb is intentionally weaker until that spell line is upgraded
 
 ## Suggested Playstyles
 
 - `Yellow-focused`: stable single-target pressure with frequent fireball conversions
-- `White-focused`: repeated area damage and wave clear built around 3-hit passive timing
+- `White-focused`: repeated area damage and wave clear built around damage-driven round advances
 - `Black-focused`: build charge, then burst down priority targets with forced evocation
 - `Mixed rotation`: the closest feel to a real Defect-style orb cycle inside Hollow Knight combat
 
@@ -148,5 +148,5 @@ Additional notes:
 
 - If your spells are not coming out normally, that is usually intended: they have been converted into orbs
 - If a direction never generates an orb, first check whether that spell line has been unlocked yet
-- If you want faster passive triggers, focus on landing steady nail hits instead of only storing orbs in advance
+- If you want faster passive triggers, plan around real combat damage that advances rounds instead of only pre-storing orbs
 - Once `Flukenest` gives you a fourth slot, orb order matters much more because your evocation order changes noticeably
