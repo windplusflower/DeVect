@@ -8,8 +8,5 @@
 
     <!-- Optional: override the post-build mod install destination -->
     <!-- <InstallDir>$(GameDir)/Mods/DeVect</InstallDir> -->
-
-    <!-- Optional: override where zip/hash packaging files are written -->
-    <!-- <PackageDir>$(MSBuildProjectDirectory)/artifacts/Debug</PackageDir> -->
   </PropertyGroup>
 </Project>

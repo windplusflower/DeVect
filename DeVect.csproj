@@ -15,7 +15,6 @@
     <ApiDir Condition="'$(ApiDir)' == '' and '$(HOLLOW_KNIGHT_API_DIR)' != ''">$(HOLLOW_KNIGHT_API_DIR)</ApiDir>
     <ApiDir Condition="'$(ApiDir)' == ''">$(GameDir)</ApiDir>
     <InstallDir Condition="'$(InstallDir)' == '' and '$(GameDir)' != ''">$(GameDir)/Mods/$(AssemblyName)</InstallDir>
-    <PackageDir Condition="'$(PackageDir)' == ''">$(MSBuildProjectDirectory)/artifacts/$(Configuration)</PackageDir>
   </PropertyGroup>
 
   <Target Name="ValidatePaths" BeforeTargets="ResolveReferences">
@@ -79,9 +78,8 @@
     <MakeDir Directories="$(InstallDir)" />
     <Copy SourceFiles="@(ModInstallFiles)" DestinationFolder="$(InstallDir)" SkipUnchangedFiles="true" />
 
-    <MakeDir Directories="$(PackageDir)" />
-    <RemoveDir Condition="Exists('$(PackageDir)/Archive')" Directories="$(PackageDir)/Archive" />
-    <MakeDir Directories="$(PackageDir)/Archive" />
+    <RemoveDir Condition="Exists('$(InstallDir)/Archive')" Directories="$(InstallDir)/Archive" />
+    <MakeDir Directories="$(InstallDir)/Archive" />
 
     <ItemGroup>
       <PackageFiles Include="@(ModInstallFiles)" />
@@ -89,26 +87,26 @@
 
     <Copy
       SourceFiles="@(PackageFiles)"
-      DestinationFiles="@(PackageFiles->'$(PackageDir)/Archive/%(RecursiveDir)%(Filename)%(Extension)')"
+      DestinationFiles="@(PackageFiles->'$(InstallDir)/Archive/%(RecursiveDir)%(Filename)%(Extension)')"
     />
 
     <ZipDirectory
-      SourceDirectory="$(PackageDir)/Archive"
-      DestinationFile="$(PackageDir)/$(AssemblyName).zip"
+      SourceDirectory="$(InstallDir)/Archive"
+      DestinationFile="$(InstallDir)/$(AssemblyName).zip"
       Overwrite="true"
     />
 
-    <GetFileHash Files="$(PackageDir)/$(AssemblyName).zip" Algorithm="SHA256">
+    <GetFileHash Files="$(InstallDir)/$(AssemblyName).zip" Algorithm="SHA256">
       <Output TaskParameter="Items" ItemName="PackageHash" />
     </GetFileHash>
 
     <WriteLinesToFile
-      File="$(PackageDir)/SHA256.txt"
+      File="$(InstallDir)/SHA256.txt"
       Lines="@(PackageHash->'%(FileHash)')"
       Overwrite="true"
       Encoding="UTF-8"
     />
 
-    <RemoveDir Directories="$(PackageDir)/Archive" />
+    <RemoveDir Directories="$(InstallDir)/Archive" />
   </Target>
 </Project>
