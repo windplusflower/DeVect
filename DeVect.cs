@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using DeVect.Combat;
 using DeVect.Fsm;
 using DeVect.Orbs;
 using HutongGames.PlayMaker;
@@ -21,6 +22,7 @@ public partial class DeVectMod : Mod, IGlobalSettings<DeVectSettings>, IMenuMod,
     private OrbPersistentState _persistentState = new();
     private int _lastKnownNailDamage;
     private bool _isShuttingDown;
+    private readonly HeroShadowDashDodgeTracker _shadowDashDodgeTracker = new();
 
     public DeVectMod() : base("DeVect")
     {
@@ -36,6 +38,9 @@ public partial class DeVectMod : Mod, IGlobalSettings<DeVectSettings>, IMenuMod,
         ModHooks.BeforeSavegameSaveHook += OnBeforeSavegameSave;
         ModHooks.AfterTakeDamageHook += OnHeroAfterTakeDamage;
         On.HeroController.NailParry += OnHeroNailParry;
+        On.HeroController.HeroDash += OnHeroDashStarted;
+        On.HeroController.Dash += OnHeroDashStepped;
+        On.HeroBox.CheckForDamage += OnHeroBoxCheckForDamage;
         ModHooks.HeroUpdateHook += OnHeroUpdate;
         On.PlayMakerFSM.OnEnable += OnPlayMakerFsmEnable;
         UnityEngine.SceneManagement.SceneManager.activeSceneChanged += OnActiveSceneChanged;
@@ -49,6 +54,9 @@ public partial class DeVectMod : Mod, IGlobalSettings<DeVectSettings>, IMenuMod,
         ModHooks.BeforeSavegameSaveHook -= OnBeforeSavegameSave;
         ModHooks.AfterTakeDamageHook -= OnHeroAfterTakeDamage;
         On.HeroController.NailParry -= OnHeroNailParry;
+        On.HeroController.HeroDash -= OnHeroDashStarted;
+        On.HeroController.Dash -= OnHeroDashStepped;
+        On.HeroBox.CheckForDamage -= OnHeroBoxCheckForDamage;
         ModHooks.HeroUpdateHook -= OnHeroUpdate;
         On.PlayMakerFSM.OnEnable -= OnPlayMakerFsmEnable;
         UnityEngine.SceneManagement.SceneManager.activeSceneChanged -= OnActiveSceneChanged;
@@ -95,6 +103,7 @@ public partial class DeVectMod : Mod, IGlobalSettings<DeVectSettings>, IMenuMod,
         HeroController hero = HeroController.instance;
         if (hero == null || hero.transform == null)
         {
+            _shadowDashDodgeTracker.Reset();
             _orbSystem?.OnSceneChanged();
             return;
         }
@@ -137,6 +146,56 @@ public partial class DeVectMod : Mod, IGlobalSettings<DeVectSettings>, IMenuMod,
 
         EnsureOrbSystem();
         _orbSystem?.OnHeroNailParry(self);
+    }
+
+    private void OnHeroDashStarted(On.HeroController.orig_HeroDash orig, HeroController self)
+    {
+        orig(self);
+
+        if (!_settings.Enabled || _isShuttingDown || self == null)
+        {
+            _shadowDashDodgeTracker.Reset();
+            return;
+        }
+
+        _shadowDashDodgeTracker.OnDashStarted(self);
+    }
+
+    private void OnHeroDashStepped(On.HeroController.orig_Dash orig, HeroController self)
+    {
+        orig(self);
+
+        if (!_settings.Enabled || _isShuttingDown || self == null)
+        {
+            _shadowDashDodgeTracker.Reset();
+            return;
+        }
+
+        _shadowDashDodgeTracker.OnDashPhysicsStep(self);
+    }
+
+    private void OnHeroBoxCheckForDamage(On.HeroBox.orig_CheckForDamage orig, HeroBox self, Collider2D otherCollider)
+    {
+        if (!_settings.Enabled || _isShuttingDown)
+        {
+            _shadowDashDodgeTracker.Reset();
+            orig(self, otherCollider);
+            return;
+        }
+
+        HeroController? hero = HeroController.instance;
+        if (hero == null)
+        {
+            _shadowDashDodgeTracker.Reset();
+        }
+
+        if (hero != null && otherCollider != null && _shadowDashDodgeTracker.TryDetectGhostDashDodge(hero, otherCollider, out string? debugDetail))
+        {
+            EnsureOrbSystem();
+            _orbSystem?.OnHeroShadowDashDodge(hero, debugDetail);
+        }
+
+        orig(self, otherCollider);
     }
 
     private void OnPlayMakerFsmEnable(On.PlayMakerFSM.orig_OnEnable orig, PlayMakerFSM self)
@@ -305,6 +364,8 @@ public partial class DeVectMod : Mod, IGlobalSettings<DeVectSettings>, IMenuMod,
 
     private void OnActiveSceneChanged(UnityEngine.SceneManagement.Scene from, UnityEngine.SceneManagement.Scene to)
     {
+        _shadowDashDodgeTracker.Reset();
+
         if (!_settings.Enabled || _isShuttingDown)
         {
             return;
@@ -316,6 +377,7 @@ public partial class DeVectMod : Mod, IGlobalSettings<DeVectSettings>, IMenuMod,
     private void OnApplicationQuitting()
     {
         _isShuttingDown = true;
+        _shadowDashDodgeTracker.Reset();
         _orbSystem?.OnShutdown();
     }
 
@@ -341,6 +403,7 @@ public partial class DeVectMod : Mod, IGlobalSettings<DeVectSettings>, IMenuMod,
         _persistentState.Clear();
         _lastKnownNailDamage = 0;
         _isShuttingDown = false;
+        _shadowDashDodgeTracker.Reset();
         _orbSystem?.ResetAll();
         EnsureOrbSystem();
     }

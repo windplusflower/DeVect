@@ -1,4 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
+  <Import Project="local.props" Condition="Exists('local.props')" />
+
   <PropertyGroup>
     <TargetFramework>net472</TargetFramework>
     <LangVersion>latest</LangVersion>
@@ -6,54 +8,62 @@
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
     <AssemblyName>DeVect</AssemblyName>
     <RootNamespace>DeVect</RootNamespace>
-    <GameDir>D:\SteamLibrary\steamapps\common\Hollow Knight\hollow_knight_Data\Managed</GameDir>
-    <InstallDir>$(GameDir)\Mods\DeVect</InstallDir>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <GameDir Condition="'$(GameDir)' == '' and '$(HOLLOW_KNIGHT_MANAGED_DIR)' != ''">$(HOLLOW_KNIGHT_MANAGED_DIR)</GameDir>
+    <ApiDir Condition="'$(ApiDir)' == '' and '$(HOLLOW_KNIGHT_API_DIR)' != ''">$(HOLLOW_KNIGHT_API_DIR)</ApiDir>
+    <ApiDir Condition="'$(ApiDir)' == ''">$(GameDir)</ApiDir>
+    <InstallDir Condition="'$(InstallDir)' == '' and '$(GameDir)' != ''">$(GameDir)/Mods/$(AssemblyName)</InstallDir>
   </PropertyGroup>
 
   <Target Name="ValidatePaths" BeforeTargets="ResolveReferences">
-    <Error Condition="!Exists('$(GameDir)\Assembly-CSharp.dll')" Text="Cannot find Hollow Knight managed DLLs. Check GameDir in DeVect.csproj." />
-    <Error Condition="!Exists('$(GameDir)\MMHOOK_Assembly-CSharp.dll')" Text="Cannot find MMHOOK_Assembly-CSharp.dll. Ensure HK Modding API is installed." />
+    <Error Condition="'$(GameDir)' == ''" Text="GameDir is not configured. Set GameDir in local.props, pass /p:GameDir=..., or export HOLLOW_KNIGHT_MANAGED_DIR." />
+    <Error Condition="!Exists('$(GameDir)/Assembly-CSharp.dll')" Text="Cannot find Hollow Knight managed DLLs at $(GameDir). Update GameDir in local.props, use /p:GameDir=..., or export HOLLOW_KNIGHT_MANAGED_DIR." />
+    <Error Condition="!Exists('$(ApiDir)/MMHOOK_Assembly-CSharp.dll')" Text="Cannot find MMHOOK_Assembly-CSharp.dll at $(ApiDir). Install HK Modding API into the game, or point ApiDir to an extracted API directory via local.props, /p:ApiDir=..., or HOLLOW_KNIGHT_API_DIR." />
+    <Error Condition="!Exists('$(ApiDir)/MMHOOK_PlayMaker.dll')" Text="Cannot find MMHOOK_PlayMaker.dll at $(ApiDir). Install HK Modding API into the game, or point ApiDir to an extracted API directory via local.props, /p:ApiDir=..., or HOLLOW_KNIGHT_API_DIR." />
+    <Error Condition="!Exists('$(ApiDir)/MonoMod.RuntimeDetour.dll')" Text="Cannot find MonoMod.RuntimeDetour.dll at $(ApiDir). Install HK Modding API into the game, or point ApiDir to an extracted API directory via local.props, /p:ApiDir=..., or HOLLOW_KNIGHT_API_DIR." />
   </Target>
 
   <ItemGroup>
     <Reference Include="Assembly-CSharp">
-      <HintPath>$(GameDir)\Assembly-CSharp.dll</HintPath>
+      <HintPath>$(ApiDir)/Assembly-CSharp.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <Reference Include="UnityEngine">
-      <HintPath>$(GameDir)\UnityEngine.dll</HintPath>
+      <HintPath>$(GameDir)/UnityEngine.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <Reference Include="UnityEngine.CoreModule">
-      <HintPath>$(GameDir)\UnityEngine.CoreModule.dll</HintPath>
+      <HintPath>$(GameDir)/UnityEngine.CoreModule.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <Reference Include="UnityEngine.Physics2DModule">
-      <HintPath>$(GameDir)\UnityEngine.Physics2DModule.dll</HintPath>
+      <HintPath>$(GameDir)/UnityEngine.Physics2DModule.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <Reference Include="UnityEngine.InputLegacyModule">
-      <HintPath>$(GameDir)\UnityEngine.InputLegacyModule.dll</HintPath>
+      <HintPath>$(GameDir)/UnityEngine.InputLegacyModule.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <Reference Include="UnityEngine.ImageConversionModule">
-      <HintPath>$(GameDir)\UnityEngine.ImageConversionModule.dll</HintPath>
+      <HintPath>$(GameDir)/UnityEngine.ImageConversionModule.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <Reference Include="PlayMaker">
-      <HintPath>$(GameDir)\PlayMaker.dll</HintPath>
+      <HintPath>$(GameDir)/PlayMaker.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <Reference Include="MMHOOK_Assembly-CSharp">
-      <HintPath>$(GameDir)\MMHOOK_Assembly-CSharp.dll</HintPath>
+      <HintPath>$(ApiDir)/MMHOOK_Assembly-CSharp.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <Reference Include="MMHOOK_PlayMaker">
-      <HintPath>$(GameDir)\MMHOOK_PlayMaker.dll</HintPath>
+      <HintPath>$(ApiDir)/MMHOOK_PlayMaker.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <Reference Include="MonoMod.RuntimeDetour">
-      <HintPath>$(GameDir)\MonoMod.RuntimeDetour.dll</HintPath>
+      <HintPath>$(ApiDir)/MonoMod.RuntimeDetour.dll</HintPath>
       <Private>false</Private>
     </Reference>
   </ItemGroup>
@@ -63,8 +73,8 @@
     <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(InstallDir)" />
     <Copy SourceFiles="$(TargetDir)$(AssemblyName).pdb" DestinationFolder="$(InstallDir)" Condition="Exists('$(TargetDir)$(AssemblyName).pdb')" />
 
-    <RemoveDir Condition="Exists('$(InstallDir)\Archive')" Directories="$(InstallDir)\Archive" />
-    <MakeDir Directories="$(InstallDir)\Archive" />
+    <RemoveDir Condition="Exists('$(InstallDir)/Archive')" Directories="$(InstallDir)/Archive" />
+    <MakeDir Directories="$(InstallDir)/Archive" />
 
     <ItemGroup>
       <PackageFiles Include="$(TargetPath)" />
@@ -73,26 +83,26 @@
 
     <Copy
       SourceFiles="@(PackageFiles)"
-      DestinationFiles="@(PackageFiles->'$(InstallDir)\Archive\%(RecursiveDir)%(Filename)%(Extension)')"
+      DestinationFiles="@(PackageFiles->'$(InstallDir)/Archive/%(RecursiveDir)%(Filename)%(Extension)')"
     />
 
     <ZipDirectory
-      SourceDirectory="$(InstallDir)\Archive"
-      DestinationFile="$(InstallDir)\$(AssemblyName).zip"
+      SourceDirectory="$(InstallDir)/Archive"
+      DestinationFile="$(InstallDir)/$(AssemblyName).zip"
       Overwrite="true"
     />
 
-    <GetFileHash Files="$(InstallDir)\$(AssemblyName).zip" Algorithm="SHA256">
+    <GetFileHash Files="$(InstallDir)/$(AssemblyName).zip" Algorithm="SHA256">
       <Output TaskParameter="Items" ItemName="PackageHash" />
     </GetFileHash>
 
     <WriteLinesToFile
-      File="$(InstallDir)\SHA256.txt"
+      File="$(InstallDir)/SHA256.txt"
       Lines="@(PackageHash->'%(FileHash)')"
       Overwrite="true"
       Encoding="UTF-8"
     />
 
-    <RemoveDir Directories="$(InstallDir)\Archive" />
+    <RemoveDir Directories="$(InstallDir)/Archive" />
   </Target>
 </Project>

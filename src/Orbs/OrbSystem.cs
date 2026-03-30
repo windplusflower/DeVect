@@ -24,6 +24,7 @@ internal sealed class OrbSystem
     private readonly OrbPersistentState _persistentState;
     private int _roundCounter;
     private int _lastParryAdvanceFrame = -1;
+    private int _lastShadowDashDodgeAdvanceFrame = -1;
     private bool _spellFsmInjected;
 
     public OrbSystem(OrbSystemDependencies dependencies)
@@ -92,6 +93,23 @@ internal sealed class OrbSystem
 
         _lastParryAdvanceFrame = Time.frameCount;
         AdvanceRound(hero, RoundAdvanceSource.HeroNailParry);
+    }
+
+    public void OnHeroShadowDashDodge(HeroController hero, string? debugDetail = null)
+    {
+        if (!CanProcess() || hero == null)
+        {
+            return;
+        }
+
+        RestoreRuntimeIfNeeded(hero);
+        if (!ShouldAdvanceRoundFromHeroShadowDashDodge(hero))
+        {
+            return;
+        }
+
+        _lastShadowDashDodgeAdvanceFrame = Time.frameCount;
+        AdvanceRound(hero, RoundAdvanceSource.HeroShadowDashDodge, debugDetail);
     }
 
     public void OnFireballCast()
@@ -174,6 +192,7 @@ internal sealed class OrbSystem
         _combatService.DisposeDebugVisuals();
         _runtime.SuspendAndRemember(_persistentState);
         _lastParryAdvanceFrame = -1;
+        _lastShadowDashDodgeAdvanceFrame = -1;
         _spellFsmInjected = false;
     }
 
@@ -181,6 +200,7 @@ internal sealed class OrbSystem
     {
         _roundCounter = 0;
         _lastParryAdvanceFrame = -1;
+        _lastShadowDashDodgeAdvanceFrame = -1;
         _spellFsmInjected = false;
         _combatService.DisposeDebugVisuals();
         _runtime.Dispose();
@@ -190,6 +210,7 @@ internal sealed class OrbSystem
     {
         _roundCounter = 0;
         _lastParryAdvanceFrame = -1;
+        _lastShadowDashDodgeAdvanceFrame = -1;
         _spellFsmInjected = false;
         _combatService.DisposeDebugVisuals();
         _runtime.Dispose();
@@ -330,6 +351,11 @@ internal sealed class OrbSystem
     private bool ShouldAdvanceRoundFromHeroParry(HeroController hero)
     {
         return hero.parryInvulnTimer > 0f && Time.frameCount != _lastParryAdvanceFrame;
+    }
+
+    private bool ShouldAdvanceRoundFromHeroShadowDashDodge(HeroController hero)
+    {
+        return hero.cState.shadowDashing && Time.frameCount != _lastShadowDashDodgeAdvanceFrame;
     }
 
     private bool CanProcess()

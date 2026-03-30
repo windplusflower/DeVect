@@ -1,0 +1,12 @@
+<Project>
+  <PropertyGroup>
+    <!-- Required: Hollow Knight managed DLL directory -->
+    <GameDir>/absolute/path/to/Hollow Knight/hollow_knight_Data/Managed</GameDir>
+
+    <!-- Optional: override when MMHOOK*.dll live outside GameDir -->
+    <!-- <ApiDir>/absolute/path/to/moddingapi/extracted</ApiDir> -->
+
+    <!-- Optional: override the post-build copy destination -->
+    <!-- <InstallDir>$(GameDir)/Mods/DeVect</InstallDir> -->
+  </PropertyGroup>
+</Project>
