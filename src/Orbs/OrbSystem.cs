@@ -23,6 +23,7 @@ internal sealed class OrbSystem
     private readonly OrbDefinitionRegistry _definitions;
     private readonly OrbPersistentState _persistentState;
     private int _roundCounter;
+    private int _lastParryAdvanceFrame = -1;
     private bool _spellFsmInjected;
 
     public OrbSystem(OrbSystemDependencies dependencies)
@@ -73,7 +74,24 @@ internal sealed class OrbSystem
         }
 
         RestoreRuntimeIfNeeded(hero);
-        AdvanceRound(hero, RoundAdvanceSource.HeroTookDamage, hazardType, damageAmount);
+        AdvanceRound(hero, RoundAdvanceSource.HeroTookDamage, $"hazardType={hazardType}, damageAmount={damageAmount}");
+    }
+
+    public void OnHeroNailParry(HeroController hero)
+    {
+        if (!CanProcess() || hero == null)
+        {
+            return;
+        }
+
+        RestoreRuntimeIfNeeded(hero);
+        if (!ShouldAdvanceRoundFromHeroParry(hero))
+        {
+            return;
+        }
+
+        _lastParryAdvanceFrame = Time.frameCount;
+        AdvanceRound(hero, RoundAdvanceSource.HeroNailParry);
     }
 
     public void OnFireballCast()
@@ -155,12 +173,14 @@ internal sealed class OrbSystem
     {
         _combatService.DisposeDebugVisuals();
         _runtime.SuspendAndRemember(_persistentState);
+        _lastParryAdvanceFrame = -1;
         _spellFsmInjected = false;
     }
 
     public void OnShutdown()
     {
         _roundCounter = 0;
+        _lastParryAdvanceFrame = -1;
         _spellFsmInjected = false;
         _combatService.DisposeDebugVisuals();
         _runtime.Dispose();
@@ -169,6 +189,7 @@ internal sealed class OrbSystem
     public void ResetAll()
     {
         _roundCounter = 0;
+        _lastParryAdvanceFrame = -1;
         _spellFsmInjected = false;
         _combatService.DisposeDebugVisuals();
         _runtime.Dispose();
@@ -270,10 +291,11 @@ internal sealed class OrbSystem
         return CanProcess() && _getHero() != null && CanGenerateOrbForSpell(orbType);
     }
 
-    private void AdvanceRound(HeroController hero, RoundAdvanceSource source, int hazardType, int damageAmount)
+    private void AdvanceRound(HeroController hero, RoundAdvanceSource source, string? debugDetail = null)
     {
         _roundCounter++;
-        _logDebug($"Advanced round {_roundCounter} via {source} (hazardType={hazardType}, damageAmount={damageAmount}).");
+        string detailSuffix = string.IsNullOrEmpty(debugDetail) ? string.Empty : $" ({debugDetail})";
+        _logDebug($"Advanced round {_roundCounter} via {source}{detailSuffix}.");
         TriggerPassiveOrbs(hero);
         _persistentState.ReplaceFromRuntime(_runtime.SnapshotActiveOrbs());
     }
@@ -303,6 +325,11 @@ internal sealed class OrbSystem
     private static bool ShouldAdvanceRoundFromHeroDamage(int hazardType, int damageAmount)
     {
         return damageAmount > 0 && hazardType == 1;
+    }
+
+    private bool ShouldAdvanceRoundFromHeroParry(HeroController hero)
+    {
+        return hero.parryInvulnTimer > 0f && Time.frameCount != _lastParryAdvanceFrame;
     }
 
     private bool CanProcess()

@@ -35,6 +35,7 @@ public partial class DeVectMod : Mod, IGlobalSettings<DeVectSettings>, IMenuMod,
 
         ModHooks.BeforeSavegameSaveHook += OnBeforeSavegameSave;
         ModHooks.AfterTakeDamageHook += OnHeroAfterTakeDamage;
+        On.HeroController.NailParry += OnHeroNailParry;
         ModHooks.HeroUpdateHook += OnHeroUpdate;
         On.PlayMakerFSM.OnEnable += OnPlayMakerFsmEnable;
         UnityEngine.SceneManagement.SceneManager.activeSceneChanged += OnActiveSceneChanged;
@@ -47,6 +48,7 @@ public partial class DeVectMod : Mod, IGlobalSettings<DeVectSettings>, IMenuMod,
     {
         ModHooks.BeforeSavegameSaveHook -= OnBeforeSavegameSave;
         ModHooks.AfterTakeDamageHook -= OnHeroAfterTakeDamage;
+        On.HeroController.NailParry -= OnHeroNailParry;
         ModHooks.HeroUpdateHook -= OnHeroUpdate;
         On.PlayMakerFSM.OnEnable -= OnPlayMakerFsmEnable;
         UnityEngine.SceneManagement.SceneManager.activeSceneChanged -= OnActiveSceneChanged;
@@ -117,6 +119,24 @@ public partial class DeVectMod : Mod, IGlobalSettings<DeVectSettings>, IMenuMod,
         EnsureOrbSystem();
         _orbSystem?.OnHeroTookDamage(hazardType, damageAmount);
         return damageAmount;
+    }
+
+    private void OnHeroNailParry(On.HeroController.orig_NailParry orig, HeroController self)
+    {
+        orig(self);
+
+        if (!_settings.Enabled || _isShuttingDown || self == null)
+        {
+            return;
+        }
+
+        if (self != HeroController.instance || self.parryInvulnTimer <= 0f)
+        {
+            return;
+        }
+
+        EnsureOrbSystem();
+        _orbSystem?.OnHeroNailParry(self);
     }
 
     private void OnPlayMakerFsmEnable(On.PlayMakerFSM.orig_OnEnable orig, PlayMakerFSM self)

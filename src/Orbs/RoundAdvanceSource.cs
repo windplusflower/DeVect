@@ -2,5 +2,6 @@ namespace DeVect.Orbs;
 
 internal enum RoundAdvanceSource
 {
-    HeroTookDamage = 1
+    HeroTookDamage = 1,
+    HeroNailParry = 2
 }
