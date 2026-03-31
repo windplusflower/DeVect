@@ -6,6 +6,9 @@ namespace DeVect.Visual;
 
 internal sealed class OrbVisualService
 {
+    private const float LightningTextureSize = 128f;
+    private const float LightningPixelsPerUnit = 48f;
+    private const float LightningBaseWorldHeight = LightningTextureSize / LightningPixelsPerUnit;
     private const float DashedRingRadius = 0.225f;
     private const float DashScale = 0.086f;
     private const float DashThicknessFactor = 0.32f;
@@ -90,10 +93,17 @@ internal sealed class OrbVisualService
     public void SpawnLightningVisual(Vector3 worldPosition, bool isEvocation = false)
     {
         LightningVisualProfile profile = isEvocation ? LightningVisualProfile.Evocation() : LightningVisualProfile.Passive();
+        Vector3 lightningEnd = GetLightningEndWorldPosition(worldPosition);
+        Vector3 lightningStart = GetLightningStartWorldPosition(lightningEnd);
+        float beamHeight = Mathf.Max(Mathf.Abs(lightningStart.y - lightningEnd.y), LightningBaseWorldHeight * profile.BeamScale);
+        float normalizedBoltHeight = Mathf.Max(0.01f, 1f - profile.ImpactHeightNormalized);
+        float verticalScale = beamHeight / (LightningBaseWorldHeight * normalizedBoltHeight);
+        float impactOffset = LightningBaseWorldHeight * profile.ImpactHeightNormalized * verticalScale;
+
         GameObject lightning = new("DeVect_LightningVisual");
-        lightning.transform.position = worldPosition;
+        lightning.transform.position = new Vector3(lightningEnd.x, lightningEnd.y - impactOffset, lightningEnd.z);
         lightning.transform.rotation = Quaternion.identity;
-        lightning.transform.localScale = new Vector3(profile.BeamScale, profile.BeamScale, 1f);
+        lightning.transform.localScale = new Vector3(profile.BeamScale, verticalScale, 1f);
 
         SpriteRenderer renderer = lightning.AddComponent<SpriteRenderer>();
         renderer.sprite = CreateLightningSprite(profile);
@@ -104,7 +114,7 @@ internal sealed class OrbVisualService
         _transientVisuals.Add(new TransientVisual(lightning, renderer, profile.Lifetime, Vector3.up * profile.DriftVelocity, renderer.color, lightning.transform.localScale));
 
         GameObject impactFlash = new("DeVect_LightningImpactFlash");
-        impactFlash.transform.position = worldPosition + new Vector3(0f, profile.ImpactYOffset, 0f);
+        impactFlash.transform.position = lightningEnd + new Vector3(0f, profile.ImpactYOffset, 0f);
         impactFlash.transform.rotation = Quaternion.identity;
         impactFlash.transform.localScale = new Vector3(profile.ImpactFlashScale, profile.ImpactFlashScale, 1f);
 
@@ -114,6 +124,27 @@ internal sealed class OrbVisualService
         flashRenderer.sortingLayerName = "HUD";
         flashRenderer.sortingOrder = 13;
         _transientVisuals.Add(new TransientVisual(impactFlash, flashRenderer, profile.Lifetime * 0.52f, Vector3.zero, flashRenderer.color, new Vector3(profile.ImpactFlashScale * 1.35f, profile.ImpactFlashScale * 1.35f, 1f)));
+    }
+
+    private static Vector3 GetLightningStartWorldPosition(Vector3 endWorldPosition)
+    {
+        Camera? mainCamera = GameCameras.instance != null ? GameCameras.instance.mainCamera : null;
+        if (mainCamera == null || !mainCamera.gameObject.activeInHierarchy)
+        {
+            return endWorldPosition + new Vector3(0f, LightningBaseWorldHeight, 0f);
+        }
+
+        float cameraDistance = Mathf.Abs(endWorldPosition.z - mainCamera.transform.position.z);
+        Vector3 targetViewportPosition = mainCamera.WorldToViewportPoint(endWorldPosition);
+        float viewportX = Mathf.Clamp01(targetViewportPosition.x);
+        Vector3 topWorldPosition = mainCamera.ViewportToWorldPoint(new Vector3(viewportX, 1f, cameraDistance));
+        topWorldPosition.z = endWorldPosition.z;
+        return topWorldPosition;
+    }
+
+    private static Vector3 GetLightningEndWorldPosition(Vector3 worldPosition)
+    {
+        return new Vector3(worldPosition.x, worldPosition.y, 0f);
     }
 
     public void SpawnGlassShatterVisual(Vector3 worldPosition)
