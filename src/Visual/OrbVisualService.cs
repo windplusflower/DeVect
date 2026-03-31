@@ -9,8 +9,10 @@ internal sealed class OrbVisualService
     private const float DashedRingRadius = 0.225f;
     private const float DashScale = 0.086f;
     private const float DashThicknessFactor = 0.32f;
-    private const float LightningScale = 0.42f;
-    private const float LightningLifetime = 0.46f;
+    private const float PassiveLightningScale = 0.94f;
+    private const float PassiveLightningLifetime = 0.5f;
+    private const float EvocationLightningScale = 1.68f;
+    private const float EvocationLightningLifetime = 0.8f;
     private const float VoidImpactBloomLifetime = 0.24f;
     private const float VoidImpactRiftLifetime = 0.42f;
     private const float VoidImpactWispLifetime = 0.34f;
@@ -29,8 +31,7 @@ internal sealed class OrbVisualService
     private static Sprite? _glassShardSprite;
     private static Sprite? _refractionRingSprite;
     private static Sprite? _glassFlashSprite;
-    private static Texture2D? _lightningTexture;
-    private static Sprite? _lightningSprite;
+    private static Sprite? _lightningImpactSprite;
     private static Sprite? _voidOrbSprite;
     private static Sprite? _voidRippleSprite;
     private static Sprite? _voidDropletSprite;
@@ -85,20 +86,33 @@ internal sealed class OrbVisualService
         return renderer;
     }
 
-    public void SpawnLightningVisual(Vector3 worldPosition)
+    public void SpawnLightningVisual(Vector3 worldPosition, bool isEvocation = false)
     {
+        LightningVisualProfile profile = isEvocation ? LightningVisualProfile.Evocation() : LightningVisualProfile.Passive();
         GameObject lightning = new("DeVect_LightningVisual");
         lightning.transform.position = worldPosition;
         lightning.transform.rotation = Quaternion.identity;
-        lightning.transform.localScale = new Vector3(LightningScale, LightningScale, 1f);
+        lightning.transform.localScale = new Vector3(profile.BeamScale, profile.BeamScale, 1f);
 
         SpriteRenderer renderer = lightning.AddComponent<SpriteRenderer>();
-        renderer.sprite = CreateLightningSprite();
-        renderer.color = Color.white;
+        renderer.sprite = CreateLightningSprite(profile);
+        renderer.color = profile.BeamTint;
         renderer.sortingLayerName = "HUD";
         renderer.sortingOrder = 12;
 
-        _transientVisuals.Add(new TransientVisual(lightning, renderer, LightningLifetime, Vector3.up * 1.65f, renderer.color, lightning.transform.localScale));
+        _transientVisuals.Add(new TransientVisual(lightning, renderer, profile.Lifetime, Vector3.up * profile.DriftVelocity, renderer.color, lightning.transform.localScale));
+
+        GameObject impactFlash = new("DeVect_LightningImpactFlash");
+        impactFlash.transform.position = worldPosition + new Vector3(0f, profile.ImpactYOffset, 0f);
+        impactFlash.transform.rotation = Quaternion.identity;
+        impactFlash.transform.localScale = new Vector3(profile.ImpactFlashScale, profile.ImpactFlashScale, 1f);
+
+        SpriteRenderer flashRenderer = impactFlash.AddComponent<SpriteRenderer>();
+        flashRenderer.sprite = CreateLightningImpactSprite();
+        flashRenderer.color = profile.ImpactFlashColor;
+        flashRenderer.sortingLayerName = "HUD";
+        flashRenderer.sortingOrder = 13;
+        _transientVisuals.Add(new TransientVisual(impactFlash, flashRenderer, profile.Lifetime * 0.52f, Vector3.zero, flashRenderer.color, new Vector3(profile.ImpactFlashScale * 1.35f, profile.ImpactFlashScale * 1.35f, 1f)));
     }
 
     public void SpawnGlassShatterVisual(Vector3 worldPosition)
@@ -748,19 +762,6 @@ internal sealed class OrbVisualService
         return inside;
     }
 
-    private static Sprite CreateLightningSprite()
-    {
-        if (_lightningSprite != null)
-        {
-            return _lightningSprite;
-        }
-
-        Texture2D texture = CreateLightningTexture();
-        _lightningSprite = Sprite.Create(texture, new Rect(0f, 0f, texture.width, texture.height), new Vector2(0.5f, 0f), 48f);
-        _lightningSprite.name = "DeVect_LightningSprite";
-        return _lightningSprite;
-    }
-
     private static Sprite CreateVoidOrbSprite()
     {
         if (_voidOrbSprite != null)
@@ -897,19 +898,68 @@ internal sealed class OrbVisualService
         return _voidDropletSprite;
     }
 
-    private static Texture2D CreateLightningTexture()
+    private static Sprite CreateLightningSprite(LightningVisualProfile profile)
     {
-        if (_lightningTexture != null)
+        Texture2D texture = CreateLightningTexture(profile);
+        Sprite sprite = Sprite.Create(texture, new Rect(0f, 0f, texture.width, texture.height), new Vector2(0.5f, 0f), 48f);
+        sprite.name = profile.IsEvocation ? "DeVect_LightningSprite_Evocation" : "DeVect_LightningSprite_Passive";
+        return sprite;
+    }
+
+    private static Sprite CreateLightningImpactSprite()
+    {
+        if (_lightningImpactSprite != null)
         {
-            return _lightningTexture;
+            return _lightningImpactSprite;
         }
 
+        const int size = 64;
+        Texture2D texture = new(size, size, TextureFormat.RGBA32, false)
+        {
+            filterMode = FilterMode.Bilinear,
+            wrapMode = TextureWrapMode.Clamp,
+            name = "DeVect_LightningImpact"
+        };
+
+        Vector2 center = new(size * 0.5f, size * 0.5f);
+        float radius = size * 0.5f;
+        for (int y = 0; y < size; y++)
+        {
+            for (int x = 0; x < size; x++)
+            {
+                Vector2 offset = new(x, y);
+                offset -= center;
+                float distance = offset.magnitude / radius;
+                if (distance > 1f)
+                {
+                    texture.SetPixel(x, y, Color.clear);
+                    continue;
+                }
+
+                float radial = Mathf.Pow(1f - distance, 1.25f);
+                float starA = Mathf.Clamp01(1f - (Mathf.Abs(offset.x + offset.y) / (size * 0.18f)));
+                float starB = Mathf.Clamp01(1f - (Mathf.Abs(offset.x - offset.y) / (size * 0.18f)));
+                float vertical = Mathf.Clamp01(1f - (Mathf.Abs(offset.x) / (size * 0.12f)));
+                float horizontal = Mathf.Clamp01(1f - (Mathf.Abs(offset.y) / (size * 0.12f)));
+                float alpha = Mathf.Clamp01((radial * 0.8f) + (Mathf.Max(starA, starB) * 0.48f) + (Mathf.Max(vertical, horizontal) * 0.22f));
+                texture.SetPixel(x, y, new Color(1f, 1f, 1f, alpha));
+            }
+        }
+
+        texture.Apply();
+        _lightningImpactSprite = Sprite.Create(texture, new Rect(0f, 0f, size, size), new Vector2(0.5f, 0.5f), size);
+        _lightningImpactSprite.name = "DeVect_LightningImpactSprite";
+        return _lightningImpactSprite;
+    }
+
+    private static Texture2D CreateLightningTexture(LightningVisualProfile profile)
+    {
         const int size = 128;
         Texture2D texture = new(size, size, TextureFormat.RGBA32, false)
         {
             filterMode = FilterMode.Bilinear,
             wrapMode = TextureWrapMode.Clamp,
-            name = "DeVect_Lightning"
+            name = profile.IsEvocation ? "DeVect_Lightning_Evocation" : "DeVect_Lightning_Passive"
         };
 
         Color clear = new(0f, 0f, 0f, 0f);
@@ -921,34 +971,42 @@ internal sealed class OrbVisualService
 
         texture.SetPixels(clearPixels);
 
-        Vector2 start = new(size * 0.48f, size * 0.05f);
-        Vector2 end = new(size * 0.57f, size * 0.95f);
-        Vector2[] mainPath = BuildLightningPath(17, start, end, size * 0.15f, 9);
-        Color glowColor = new(0.16f, 0.8f, 1f, 0.28f);
-        Color coreColor = new(0.94f, 0.99f, 1f, 0.98f);
-        DrawLightningBolt(texture, mainPath, coreColor, glowColor, 1, 7);
+        float startX = (size * 0.5f) + Random.Range(-profile.StartOffsetPixels, profile.StartOffsetPixels);
+        Vector2 start = new(startX, size * profile.StartHeightNormalized);
+        Vector2 end = new((size * 0.5f) + Random.Range(-profile.EndOffsetPixels, profile.EndOffsetPixels), size * profile.ImpactHeightNormalized);
+        Vector2[] mainPath = BuildLightningPath(Random.Range(1, 5000), start, end, size * profile.MainJitterFactor, profile.MainSegmentCount);
+        DrawLightningBolt(texture, mainPath, profile.CoreColor, profile.GlowColor, profile.CoreRadius, profile.GlowRadius);
 
-        DrawLightningBranch(texture, mainPath[3], 152f, size * 0.2f, 23);
-        DrawLightningBranch(texture, mainPath[4], 138f, size * 0.22f, 31);
-        DrawLightningBranch(texture, mainPath[5], 28f, size * 0.19f, 47);
-        DrawLightningBranch(texture, mainPath[6], 201f, size * 0.15f, 63);
-        DrawLightningBranch(texture, mainPath[7], 16f, size * 0.13f, 79);
+        int minBranchIndex = Mathf.Max(2, Mathf.FloorToInt(mainPath.Length * 0.28f));
+        int maxBranchIndex = Mathf.Min(mainPath.Length - 3, Mathf.CeilToInt(mainPath.Length * 0.78f));
+        for (int i = 0; i < profile.BranchCount; i++)
+        {
+            int pointIndex = Mathf.Clamp(Random.Range(minBranchIndex, maxBranchIndex + 1), 1, mainPath.Length - 2);
+            float baseAngle = mainPath[pointIndex].x <= end.x ? 210f : 150f;
+            if (Random.value > 0.5f)
+            {
+                baseAngle = mainPath[pointIndex].x <= end.x ? 28f : 332f;
+            }
 
-        Vector2 midFlash = mainPath[5];
-        StampSoftPixel(texture, Mathf.RoundToInt(midFlash.x), Mathf.RoundToInt(midFlash.y), new Color(0.5f, 0.9f, 1f, 0.18f), 10);
-        StampSoftPixel(texture, Mathf.RoundToInt(midFlash.x), Mathf.RoundToInt(midFlash.y), new Color(1f, 1f, 1f, 0.34f), 4);
+            float angle = baseAngle + Random.Range(-22f, 22f);
+            float length = size * Random.Range(profile.BranchLengthMin, profile.BranchLengthMax);
+            DrawLightningBranch(texture, mainPath[pointIndex], angle, length, Random.Range(1, 5000), profile.BranchCoreColor, profile.BranchGlowColor, profile.BranchCoreRadius, profile.BranchGlowRadius);
+        }
+
+        Vector2 midFlash = mainPath[Mathf.Clamp(mainPath.Length / 2, 1, mainPath.Length - 2)];
+        StampSoftPixel(texture, Mathf.RoundToInt(midFlash.x), Mathf.RoundToInt(midFlash.y), profile.MidGlowColor, profile.MidGlowRadius);
+        StampSoftPixel(texture, Mathf.RoundToInt(midFlash.x), Mathf.RoundToInt(midFlash.y), profile.MidCoreColor, profile.MidCoreRadius);
 
         Vector2 impact = end;
-        StampSoftPixel(texture, Mathf.RoundToInt(impact.x), Mathf.RoundToInt(impact.y), new Color(0.46f, 0.88f, 1f, 0.26f), 14);
-        StampSoftPixel(texture, Mathf.RoundToInt(impact.x), Mathf.RoundToInt(impact.y), new Color(0.82f, 0.97f, 1f, 0.36f), 8);
-        StampSoftPixel(texture, Mathf.RoundToInt(impact.x), Mathf.RoundToInt(impact.y), new Color(1f, 1f, 1f, 0.66f), 4);
+        StampSoftPixel(texture, Mathf.RoundToInt(impact.x), Mathf.RoundToInt(impact.y), profile.ImpactGlowColor, profile.ImpactGlowRadius);
+        StampSoftPixel(texture, Mathf.RoundToInt(impact.x), Mathf.RoundToInt(impact.y), profile.ImpactCoreColor, profile.ImpactCoreRadius);
+        StampSoftPixel(texture, Mathf.RoundToInt(impact.x), Mathf.RoundToInt(impact.y), profile.ImpactHotColor, profile.ImpactHotRadius);
 
         texture.Apply();
 
         texture.filterMode = FilterMode.Bilinear;
         texture.wrapMode = TextureWrapMode.Clamp;
-        _lightningTexture = texture;
-        return _lightningTexture;
+        return texture;
     }
 
     private static void DrawLightningBolt(Texture2D texture, Vector2[] points, Color coreColor, Color glowColor, int coreRadius, int glowRadius)
@@ -1042,18 +1100,169 @@ internal sealed class OrbVisualService
         }
     }
 
-    private static void DrawLightningBranch(Texture2D texture, Vector2 origin, float angleDeg, float length, int seed)
+    private static void DrawLightningBranch(Texture2D texture, Vector2 origin, float angleDeg, float length, int seed, Color coreColor, Color glowColor, int coreRadius, int glowRadius)
     {
         float radians = angleDeg * Mathf.Deg2Rad;
         Vector2 direction = new(Mathf.Cos(radians), Mathf.Sin(radians));
         Vector2 end = origin + (direction * length);
         Vector2[] branchPath = BuildLightningPath(seed, origin, end, length * 0.16f, 5);
-        DrawLightningBolt(
-            texture,
-            branchPath,
-            new Color(0.9f, 0.98f, 1f, 0.84f),
-            new Color(0.14f, 0.76f, 1f, 0.18f),
-            1,
-            4);
+        DrawLightningBolt(texture, branchPath, coreColor, glowColor, coreRadius, glowRadius);
+    }
+
+    private readonly struct LightningVisualProfile
+    {
+        public bool IsEvocation { get; init; }
+
+        public float Lifetime { get; init; }
+
+        public float BeamScale { get; init; }
+
+        public float DriftVelocity { get; init; }
+
+        public float StartHeightNormalized { get; init; }
+
+        public float ImpactHeightNormalized { get; init; }
+
+        public float StartOffsetPixels { get; init; }
+
+        public float EndOffsetPixels { get; init; }
+
+        public int BranchCount { get; init; }
+
+        public int MainSegmentCount { get; init; }
+
+        public float MainJitterFactor { get; init; }
+
+        public float BranchLengthMin { get; init; }
+
+        public float BranchLengthMax { get; init; }
+
+        public int CoreRadius { get; init; }
+
+        public int GlowRadius { get; init; }
+
+        public int BranchCoreRadius { get; init; }
+
+        public int BranchGlowRadius { get; init; }
+
+        public int MidGlowRadius { get; init; }
+
+        public int MidCoreRadius { get; init; }
+
+        public int ImpactGlowRadius { get; init; }
+
+        public int ImpactCoreRadius { get; init; }
+
+        public int ImpactHotRadius { get; init; }
+
+        public float ImpactFlashScale { get; init; }
+
+        public float ImpactYOffset { get; init; }
+
+        public Color BeamTint { get; init; }
+
+        public Color GlowColor { get; init; }
+
+        public Color CoreColor { get; init; }
+
+        public Color BranchGlowColor { get; init; }
+
+        public Color BranchCoreColor { get; init; }
+
+        public Color MidGlowColor { get; init; }
+
+        public Color MidCoreColor { get; init; }
+
+        public Color ImpactGlowColor { get; init; }
+
+        public Color ImpactCoreColor { get; init; }
+
+        public Color ImpactHotColor { get; init; }
+
+        public Color ImpactFlashColor { get; init; }
+
+        public static LightningVisualProfile Passive()
+        {
+            return new LightningVisualProfile
+            {
+                IsEvocation = false,
+                Lifetime = PassiveLightningLifetime,
+                BeamScale = PassiveLightningScale,
+                DriftVelocity = 1.2f,
+                StartHeightNormalized = 0.92f,
+                ImpactHeightNormalized = 0.07f,
+                StartOffsetPixels = 16f,
+                EndOffsetPixels = 3f,
+                BranchCount = Random.Range(3, 5),
+                MainSegmentCount = 10,
+                MainJitterFactor = 0.12f,
+                BranchLengthMin = 0.12f,
+                BranchLengthMax = 0.18f,
+                CoreRadius = 1,
+                GlowRadius = 5,
+                BranchCoreRadius = 1,
+                BranchGlowRadius = 3,
+                MidGlowRadius = 8,
+                MidCoreRadius = 3,
+                ImpactGlowRadius = 10,
+                ImpactCoreRadius = 5,
+                ImpactHotRadius = 2,
+                ImpactFlashScale = 0.72f,
+                ImpactYOffset = 0.02f,
+                BeamTint = new Color(0.95f, 0.98f, 1f, 0.96f),
+                GlowColor = new Color(0.18f, 0.78f, 1f, 0.22f),
+                CoreColor = new Color(0.94f, 0.99f, 1f, 0.94f),
+                BranchGlowColor = new Color(0.16f, 0.74f, 1f, 0.15f),
+                BranchCoreColor = new Color(0.9f, 0.98f, 1f, 0.78f),
+                MidGlowColor = new Color(0.52f, 0.9f, 1f, 0.14f),
+                MidCoreColor = new Color(1f, 1f, 1f, 0.26f),
+                ImpactGlowColor = new Color(0.46f, 0.88f, 1f, 0.2f),
+                ImpactCoreColor = new Color(0.82f, 0.97f, 1f, 0.28f),
+                ImpactHotColor = new Color(1f, 1f, 1f, 0.46f),
+                ImpactFlashColor = new Color(0.8f, 0.95f, 1f, 0.7f)
+            };
+        }
+
+        public static LightningVisualProfile Evocation()
+        {
+            return new LightningVisualProfile
+            {
+                IsEvocation = true,
+                Lifetime = EvocationLightningLifetime,
+                BeamScale = EvocationLightningScale,
+                DriftVelocity = 1.55f,
+                StartHeightNormalized = 0.96f,
+                ImpactHeightNormalized = 0.06f,
+                StartOffsetPixels = 8f,
+                EndOffsetPixels = 2f,
+                BranchCount = Random.Range(5, 7),
+                MainSegmentCount = 12,
+                MainJitterFactor = 0.1f,
+                BranchLengthMin = 0.15f,
+                BranchLengthMax = 0.24f,
+                CoreRadius = 2,
+                GlowRadius = 8,
+                BranchCoreRadius = 1,
+                BranchGlowRadius = 4,
+                MidGlowRadius = 12,
+                MidCoreRadius = 5,
+                ImpactGlowRadius = 16,
+                ImpactCoreRadius = 8,
+                ImpactHotRadius = 4,
+                ImpactFlashScale = 1.02f,
+                ImpactYOffset = 0.05f,
+                BeamTint = new Color(1f, 1f, 1f, 1f),
+                GlowColor = new Color(0.28f, 0.86f, 1f, 0.32f),
+                CoreColor = new Color(1f, 1f, 1f, 0.98f),
+                BranchGlowColor = new Color(0.22f, 0.82f, 1f, 0.2f),
+                BranchCoreColor = new Color(0.96f, 0.99f, 1f, 0.82f),
+                MidGlowColor = new Color(0.72f, 0.95f, 1f, 0.2f),
+                MidCoreColor = new Color(1f, 1f, 1f, 0.38f),
+                ImpactGlowColor = new Color(0.58f, 0.92f, 1f, 0.28f),
+                ImpactCoreColor = new Color(0.9f, 0.99f, 1f, 0.42f),
+                ImpactHotColor = new Color(1f, 1f, 1f, 0.74f),
+                ImpactFlashColor = new Color(0.92f, 0.99f, 1f, 0.9f)
+            };
+        }
     }
 }
