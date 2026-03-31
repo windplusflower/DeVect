@@ -4,6 +4,9 @@ namespace DeVect.Visual;
 
 internal sealed class IceShieldDisplay
 {
+    private const int HudLayer = 27;
+    private const float HudViewportX = 0.31f;
+    private const float HudViewportY = 0.92f;
     private static readonly Color ActivePetalColor = new(0.78f, 0.94f, 1f, 0.98f);
     private static readonly Color InactivePetalColor = new(0.42f, 0.56f, 0.68f, 0.24f);
     private static readonly Vector3[] PetalOffsets =
@@ -36,7 +39,8 @@ internal sealed class IceShieldDisplay
             return;
         }
 
-        Vector3 worldPosition = hudCamera.ViewportToWorldPoint(new Vector3(0.247f, 0.92f, Mathf.Abs(hudCamera.transform.position.z)));
+        float worldDistance = Mathf.Abs(0f - hudCamera.transform.position.z);
+        Vector3 worldPosition = hudCamera.ViewportToWorldPoint(new Vector3(HudViewportX, HudViewportY, worldDistance));
         worldPosition.z = 0f;
         _root.transform.position = worldPosition;
         _root.transform.rotation = Quaternion.identity;
@@ -77,9 +81,11 @@ internal sealed class IceShieldDisplay
         }
 
         _root = new GameObject("DeVect_IceShieldDisplay");
+        ApplyHudLayer(_root);
 
         GameObject core = new("Core");
         core.transform.SetParent(_root.transform, false);
+        ApplyHudLayer(core);
         _coreRenderer = core.AddComponent<SpriteRenderer>();
         _coreRenderer.sprite = CreateCoreSprite();
         _coreRenderer.sortingLayerName = "HUD";
@@ -90,6 +96,7 @@ internal sealed class IceShieldDisplay
         {
             GameObject petal = new($"Petal_{i}");
             petal.transform.SetParent(_root.transform, false);
+            ApplyHudLayer(petal);
             petal.transform.localPosition = PetalOffsets[i];
             petal.transform.localScale = new Vector3(0.22f, 0.22f, 1f);
             petal.transform.localRotation = Quaternion.Euler(0f, 0f, i * -90f);
@@ -100,6 +107,11 @@ internal sealed class IceShieldDisplay
             renderer.sortingOrder = 19;
             _petalRenderers[i] = renderer;
         }
+    }
+
+    private static void ApplyHudLayer(GameObject root)
+    {
+        root.layer = HudLayer;
     }
 
     private void SetVisible(bool visible)
