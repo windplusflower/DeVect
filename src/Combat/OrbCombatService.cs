@@ -129,13 +129,14 @@ internal sealed class OrbCombatService
 
         int previousHp = target.hp;
         bool wasDead = target.isDead;
+        float hitDirection = GetHitDirection(hero.transform, target.transform);
         HitInstance hitInstance = new()
         {
             Source = hero.gameObject,
             AttackType = attackType,
             CircleDirection = false,
             DamageDealt = damage,
-            Direction = GetHitDirection(hero.transform, target.transform),
+            Direction = hitDirection,
             IgnoreInvulnerable = true,
             MagnitudeMultiplier = 0f,
             MoveAngle = 0f,
@@ -146,7 +147,19 @@ internal sealed class OrbCombatService
         };
 
         target.Hit(hitInstance);
-        return target.isDead || (!wasDead && target.hp < previousHp);
+        if (target.isDead || (!wasDead && target.hp < previousHp))
+        {
+            return true;
+        }
+
+        if (target.isDead || target.IsBlockingByDirection(DirectionUtils.GetCardinalDirection(hitDirection), attackType))
+        {
+            return false;
+        }
+
+        int hpBeforeExtraDamage = target.hp;
+        target.ApplyExtraDamage(damage);
+        return target.isDead || target.hp < hpBeforeExtraDamage;
     }
 
     public Vector3 GetLightningImpactVisualPosition(HealthManager target)
