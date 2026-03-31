@@ -67,7 +67,7 @@ internal sealed class HeroShadowDashDodgeTracker
             return false;
         }
 
-        if (damageAmount <= 0 || hazardType != 1)
+        if (damageAmount <= 0 || (hazardType != 0 && hazardType != 1))
         {
             return false;
         }

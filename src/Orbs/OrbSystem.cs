@@ -23,7 +23,7 @@ internal sealed class OrbSystem
     private readonly OrbDefinitionRegistry _definitions;
     private readonly OrbPersistentState _persistentState;
     private int _roundCounter;
-    private int _lastParryAdvanceFrame = -1;
+    private bool _parryWindowConsumed;
     private int _lastShadowDashDodgeAdvanceFrame = -1;
     private bool _spellFsmInjected;
 
@@ -53,6 +53,11 @@ internal sealed class OrbSystem
         if (!CanProcess())
         {
             return;
+        }
+
+        if (hero.parryInvulnTimer <= 0f)
+        {
+            _parryWindowConsumed = false;
         }
 
         RestoreRuntimeIfNeeded(hero);
@@ -91,7 +96,7 @@ internal sealed class OrbSystem
             return;
         }
 
-        _lastParryAdvanceFrame = Time.frameCount;
+        _parryWindowConsumed = true;
         AdvanceRound(hero, RoundAdvanceSource.HeroNailParry);
     }
 
@@ -191,7 +196,7 @@ internal sealed class OrbSystem
     {
         _combatService.DisposeDebugVisuals();
         _runtime.SuspendAndRemember(_persistentState);
-        _lastParryAdvanceFrame = -1;
+        _parryWindowConsumed = false;
         _lastShadowDashDodgeAdvanceFrame = -1;
         _spellFsmInjected = false;
     }
@@ -199,7 +204,7 @@ internal sealed class OrbSystem
     public void OnShutdown()
     {
         _roundCounter = 0;
-        _lastParryAdvanceFrame = -1;
+        _parryWindowConsumed = false;
         _lastShadowDashDodgeAdvanceFrame = -1;
         _spellFsmInjected = false;
         _combatService.DisposeDebugVisuals();
@@ -209,7 +214,7 @@ internal sealed class OrbSystem
     public void ResetAll()
     {
         _roundCounter = 0;
-        _lastParryAdvanceFrame = -1;
+        _parryWindowConsumed = false;
         _lastShadowDashDodgeAdvanceFrame = -1;
         _spellFsmInjected = false;
         _combatService.DisposeDebugVisuals();
@@ -345,12 +350,12 @@ internal sealed class OrbSystem
 
     private static bool ShouldAdvanceRoundFromHeroDamage(int hazardType, int damageAmount)
     {
-        return damageAmount > 0 && hazardType == 1;
+        return damageAmount > 0 && (hazardType == 0 || hazardType == 1);
     }
 
     private bool ShouldAdvanceRoundFromHeroParry(HeroController hero)
     {
-        return hero.parryInvulnTimer > 0f && Time.frameCount != _lastParryAdvanceFrame;
+        return !_parryWindowConsumed;
     }
 
     private bool ShouldAdvanceRoundFromHeroShadowDashDodge(HeroController hero)
