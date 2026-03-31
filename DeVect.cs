@@ -15,11 +15,19 @@ public class DeVectSettings
     public bool Enabled = true;
 }
 
-public partial class DeVectMod : Mod, IGlobalSettings<DeVectSettings>, IMenuMod, ITogglableMod
+[Serializable]
+public class DeVectLocalSettings
+{
+    public int IceShieldPetals;
+}
+
+public partial class DeVectMod : Mod, IGlobalSettings<DeVectSettings>, ILocalSettings<DeVectLocalSettings>, IMenuMod, ITogglableMod
 {
     private DeVectSettings _settings = new();
+    private DeVectLocalSettings _localSettings = new();
     private OrbSystem? _orbSystem;
     private OrbPersistentState _persistentState = new();
+    private readonly IceShieldState _iceShieldState = new();
     private int _lastKnownNailDamage;
     private bool _isShuttingDown;
     private readonly HeroShadowDashDodgeTracker _shadowDashDodgeTracker = new();
@@ -36,6 +44,7 @@ public partial class DeVectMod : Mod, IGlobalSettings<DeVectSettings>, IMenuMod,
         EnsureOrbSystem();
 
         ModHooks.BeforeSavegameSaveHook += OnBeforeSavegameSave;
+        ModHooks.TakeDamageHook += OnHeroTakeDamage;
         ModHooks.AfterTakeDamageHook += OnHeroAfterTakeDamage;
         On.HeroController.NailParry += OnHeroNailParry;
         On.HeroController.HeroDash += OnHeroDashStarted;
@@ -52,6 +61,7 @@ public partial class DeVectMod : Mod, IGlobalSettings<DeVectSettings>, IMenuMod,
     public void Unload()
     {
         ModHooks.BeforeSavegameSaveHook -= OnBeforeSavegameSave;
+        ModHooks.TakeDamageHook -= OnHeroTakeDamage;
         ModHooks.AfterTakeDamageHook -= OnHeroAfterTakeDamage;
         On.HeroController.NailParry -= OnHeroNailParry;
         On.HeroController.HeroDash -= OnHeroDashStarted;
@@ -69,7 +79,19 @@ public partial class DeVectMod : Mod, IGlobalSettings<DeVectSettings>, IMenuMod,
         _settings = settings ?? new DeVectSettings();
     }
 
+    public void OnLoadLocal(DeVectLocalSettings settings)
+    {
+        _localSettings = settings ?? new DeVectLocalSettings();
+        _iceShieldState.SetPetalCount(_localSettings.IceShieldPetals);
+    }
+
     public DeVectSettings OnSaveGlobal() => _settings;
+
+    public DeVectLocalSettings OnSaveLocal()
+    {
+        _localSettings.IceShieldPetals = _iceShieldState.GetPetalCount();
+        return _localSettings;
+    }
 
     public bool ToggleButtonInsideMenu => true;
 
@@ -111,6 +133,17 @@ public partial class DeVectMod : Mod, IGlobalSettings<DeVectSettings>, IMenuMod,
         EnsureOrbSystem();
         TryInjectHeroSpellFsm(hero);
         _orbSystem?.OnHeroUpdate(hero, Time.deltaTime);
+    }
+
+    private int OnHeroTakeDamage(ref int hazardType, int damageAmount)
+    {
+        if (!_settings.Enabled || _isShuttingDown)
+        {
+            return damageAmount;
+        }
+
+        EnsureOrbSystem();
+        return _orbSystem?.OnHeroTakeDamage(ref hazardType, damageAmount) ?? damageAmount;
     }
 
     private int OnHeroAfterTakeDamage(int hazardType, int damageAmount)
@@ -401,6 +434,7 @@ public partial class DeVectMod : Mod, IGlobalSettings<DeVectSettings>, IMenuMod,
     private void ResetRuntimeState()
     {
         _persistentState.Clear();
+        _iceShieldState.Clear();
         _lastKnownNailDamage = 0;
         _isShuttingDown = false;
         _shadowDashDodgeTracker.Reset();
@@ -424,7 +458,8 @@ public partial class DeVectMod : Mod, IGlobalSettings<DeVectSettings>, IMenuMod,
                 GetHero = () => HeroController.instance,
                 LogInfo = LogModInfo,
                 LogDebug = LogModDebug,
-                PersistentState = _persistentState
+                PersistentState = _persistentState,
+                ShieldState = _iceShieldState
             }
         );
     }

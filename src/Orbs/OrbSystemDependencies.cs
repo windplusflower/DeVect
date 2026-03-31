@@ -1,4 +1,5 @@
 using System;
+using DeVect.Combat;
 
 namespace DeVect.Orbs;
 
@@ -17,4 +18,6 @@ internal sealed class OrbSystemDependencies
     public Action<string>? LogDebug { get; set; }
 
     public OrbPersistentState? PersistentState { get; set; }
+
+    public IceShieldState? ShieldState { get; set; }
 }

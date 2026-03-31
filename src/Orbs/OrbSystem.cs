@@ -4,6 +4,7 @@ using DeVect.Combat;
 using DeVect.Orbs.Definitions;
 using DeVect.Orbs.Runtime;
 using DeVect.Visual;
+using GlobalEnums;
 using HutongGames.PlayMaker;
 using UnityEngine;
 
@@ -20,8 +21,10 @@ internal sealed class OrbSystem
     private readonly OrbRuntime _runtime;
     private readonly OrbCombatService _combatService;
     private readonly OrbVisualService _visualService;
+    private readonly IceShieldDisplay _iceShieldDisplay;
     private readonly OrbDefinitionRegistry _definitions;
     private readonly OrbPersistentState _persistentState;
+    private readonly IceShieldState _shieldState;
     private int _roundCounter;
     private bool _parryWindowConsumed;
     private int _lastShadowDashDodgeAdvanceFrame = -1;
@@ -36,13 +39,15 @@ internal sealed class OrbSystem
         _logInfo = dependencies.LogInfo ?? throw new ArgumentNullException(nameof(dependencies.LogInfo));
         _logDebug = dependencies.LogDebug ?? throw new ArgumentNullException(nameof(dependencies.LogDebug));
         _persistentState = dependencies.PersistentState ?? throw new ArgumentNullException(nameof(dependencies.PersistentState));
+        _shieldState = dependencies.ShieldState ?? throw new ArgumentNullException(nameof(dependencies.ShieldState));
 
         _visualService = new OrbVisualService();
+        _iceShieldDisplay = new IceShieldDisplay();
         _combatService = new OrbCombatService();
         _definitions = new OrbDefinitionRegistry(new IOrbDefinition[]
         {
             new YellowOrbDefinition(),
-            new BlackOrbDefinition(),
+            new IceOrbDefinition(_shieldState),
             new WhiteOrbDefinition()
         });
         _runtime = new OrbRuntime(_visualService);
@@ -63,7 +68,25 @@ internal sealed class OrbSystem
         RestoreRuntimeIfNeeded(hero);
         _runtime.TickFollow();
         _runtime.TickAnimations(deltaTime);
+        _iceShieldDisplay.Tick(_shieldState.GetPetalCount());
         _combatService.TickDebugVisuals();
+    }
+
+    public int OnHeroTakeDamage(ref int hazardType, int damageAmount)
+    {
+        HeroController? hero = _getHero();
+        if (!CanProcess() || damageAmount <= 0 || hero == null || !CanHeroTakeDamage(hero, hazardType))
+        {
+            return damageAmount;
+        }
+
+        int remainingDamage = _shieldState.AbsorbDamage(damageAmount, out int absorbedDamage);
+        if (absorbedDamage > 0)
+        {
+            _logDebug($"Ice shield absorbed {absorbedDamage} damage. Remaining petals={_shieldState.GetPetalCount()}.");
+        }
+
+        return remainingDamage;
     }
 
     public void OnHeroTookDamage(int hazardType, int damageAmount)
@@ -195,6 +218,7 @@ internal sealed class OrbSystem
     public void OnSceneChanged()
     {
         _combatService.DisposeDebugVisuals();
+        _iceShieldDisplay.Dispose();
         _runtime.SuspendAndRemember(_persistentState);
         _parryWindowConsumed = false;
         _lastShadowDashDodgeAdvanceFrame = -1;
@@ -208,6 +232,7 @@ internal sealed class OrbSystem
         _lastShadowDashDodgeAdvanceFrame = -1;
         _spellFsmInjected = false;
         _combatService.DisposeDebugVisuals();
+        _iceShieldDisplay.Dispose();
         _runtime.Dispose();
     }
 
@@ -217,7 +242,9 @@ internal sealed class OrbSystem
         _parryWindowConsumed = false;
         _lastShadowDashDodgeAdvanceFrame = -1;
         _spellFsmInjected = false;
+        _shieldState.Clear();
         _combatService.DisposeDebugVisuals();
+        _iceShieldDisplay.Dispose();
         _runtime.Dispose();
     }
 
@@ -351,6 +378,41 @@ internal sealed class OrbSystem
     private static bool ShouldAdvanceRoundFromHeroDamage(int hazardType, int damageAmount)
     {
         return damageAmount > 0 && (hazardType == 0 || hazardType == 1);
+    }
+
+    private static bool CanHeroTakeDamage(HeroController hero, int hazardType)
+    {
+        PlayerData? playerData = PlayerData.instance;
+        if (playerData == null)
+        {
+            return false;
+        }
+
+        bool canTakeDamage = hero.damageMode != DamageMode.NO_DAMAGE
+            && hero.transitionState == HeroTransitionState.WAITING_TO_TRANSITION
+            && !hero.cState.invulnerable
+            && !hero.cState.recoiling
+            && !playerData.GetBool("isInvincible")
+            && !hero.cState.dead
+            && !hero.cState.hazardDeath
+            && !BossSceneController.IsTransitioning;
+
+        if (!canTakeDamage)
+        {
+            return false;
+        }
+
+        if (hero.damageMode == DamageMode.HAZARD_ONLY && hazardType == 1)
+        {
+            return false;
+        }
+
+        if (hero.cState.shadowDashing && hazardType == 1)
+        {
+            return false;
+        }
+
+        return !(hero.parryInvulnTimer > 0f && hazardType == 1);
     }
 
     private bool ShouldAdvanceRoundFromHeroParry(HeroController hero)

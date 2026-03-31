@@ -32,9 +32,10 @@ internal sealed class OrbVisualService
     private static Sprite? _refractionRingSprite;
     private static Sprite? _glassFlashSprite;
     private static Sprite? _lightningImpactSprite;
-    private static Sprite? _voidOrbSprite;
-    private static Sprite? _voidRippleSprite;
-    private static Sprite? _voidDropletSprite;
+    private static Sprite? _iceOrbSprite;
+    private static Sprite? _icePetalSprite;
+    private static Sprite? _iceBloomSprite;
+    private static Sprite? _iceCrystalSprite;
 
     public void BuildDashedRing(Transform parent)
     {
@@ -64,7 +65,7 @@ internal sealed class OrbVisualService
         renderer.sprite = typeId switch
         {
             OrbTypeId.White => CreateGlassOrbSprite(),
-            OrbTypeId.Black => CreateVoidOrbSprite(),
+            OrbTypeId.Black => CreateIceOrbSprite(),
             _ => CreateCircleSprite()
         };
         renderer.color = color;
@@ -76,7 +77,7 @@ internal sealed class OrbVisualService
         }
         else if (typeId == OrbTypeId.Black)
         {
-            AddBlackOrbMaterialLayers(orb.transform, color);
+            AddIceOrbMaterialLayers(orb.transform, color);
         }
         else
         {
@@ -181,7 +182,7 @@ internal sealed class OrbVisualService
         bloom.transform.localScale = new Vector3(0.34f, 0.34f, 1f);
 
         SpriteRenderer bloomRenderer = bloom.AddComponent<SpriteRenderer>();
-        bloomRenderer.sprite = CreateVoidRippleSprite();
+        bloomRenderer.sprite = CreateIceBloomSprite();
         bloomRenderer.color = new Color(0.9f, 0.78f, 1f, 0.98f);
         bloomRenderer.sortingLayerName = "HUD";
         bloomRenderer.sortingOrder = 15;
@@ -193,7 +194,7 @@ internal sealed class OrbVisualService
         rift.transform.localScale = new Vector3(0.42f, 1.12f, 1f);
 
         SpriteRenderer riftRenderer = rift.AddComponent<SpriteRenderer>();
-        riftRenderer.sprite = CreateVoidDropletSprite();
+        riftRenderer.sprite = CreateIceCrystalSprite();
         riftRenderer.color = new Color(0.2f, 0.04f, 0.24f, 1f);
         riftRenderer.sortingLayerName = "HUD";
         riftRenderer.sortingOrder = 16;
@@ -217,7 +218,7 @@ internal sealed class OrbVisualService
             wisp.transform.localScale = new Vector3(0.2f, 0.54f, 1f);
 
             SpriteRenderer wispRenderer = wisp.AddComponent<SpriteRenderer>();
-            wispRenderer.sprite = CreateVoidDropletSprite();
+            wispRenderer.sprite = CreateIceCrystalSprite();
             wispRenderer.color = i % 2 == 0
                 ? new Color(0.42f, 0.2f, 0.55f, 0.92f)
                 : new Color(0.78f, 0.58f, 0.96f, 0.88f);
@@ -230,6 +231,78 @@ internal sealed class OrbVisualService
     public void TrackTransientVisual(TransientVisual visual)
     {
         _transientVisuals.Add(visual);
+    }
+
+    public void SpawnIcePetalEffect(Vector3 worldPosition, int petalCount)
+    {
+        bool isFullBloom = petalCount >= 4;
+        float lifetime = isFullBloom ? 0.8f : 0.5f;
+
+        GameObject bloom = new(isFullBloom ? "DeVect_IceBloom" : "DeVect_IcePetalBloom");
+        bloom.transform.position = worldPosition;
+        bloom.transform.rotation = Quaternion.identity;
+        bloom.transform.localScale = new Vector3(isFullBloom ? 0.5f : 0.28f, isFullBloom ? 0.5f : 0.28f, 1f);
+
+        SpriteRenderer bloomRenderer = bloom.AddComponent<SpriteRenderer>();
+        bloomRenderer.sprite = CreateIceBloomSprite();
+        bloomRenderer.color = isFullBloom
+            ? new Color(0.84f, 0.96f, 1f, 0.82f)
+            : new Color(0.82f, 0.95f, 1f, 0.52f);
+        bloomRenderer.sortingLayerName = "HUD";
+        bloomRenderer.sortingOrder = 14;
+        _transientVisuals.Add(new TransientVisual(bloom, bloomRenderer, lifetime, Vector3.up * (isFullBloom ? 0.12f : 0.06f), bloomRenderer.color, bloom.transform.localScale));
+
+        int visualPetalCount = isFullBloom ? 4 : Mathf.Max(1, petalCount);
+        for (int i = 0; i < visualPetalCount; i++)
+        {
+            float angle = (Mathf.PI * 2f * i) / visualPetalCount;
+            Vector3 outward = new(Mathf.Cos(angle), Mathf.Sin(angle), 0f);
+
+            GameObject petal = new($"DeVect_IcePetal_{i}");
+            petal.transform.position = worldPosition + (outward * (isFullBloom ? 0.1f : 0.04f));
+            petal.transform.rotation = Quaternion.Euler(0f, 0f, (angle * Mathf.Rad2Deg) - 90f);
+            petal.transform.localScale = new Vector3(isFullBloom ? 0.3f : 0.22f, isFullBloom ? 0.3f : 0.22f, 1f);
+
+            SpriteRenderer petalRenderer = petal.AddComponent<SpriteRenderer>();
+            petalRenderer.sprite = CreateIcePetalSprite();
+            petalRenderer.color = isFullBloom
+                ? new Color(0.84f, 0.96f, 1f, 0.98f)
+                : new Color(0.78f, 0.93f, 1f, 0.82f);
+            petalRenderer.sortingLayerName = "HUD";
+            petalRenderer.sortingOrder = 15;
+
+            TransientVisual visual = new(petal, petalRenderer, lifetime, Vector3.zero, petalRenderer.color, petal.transform.localScale)
+            {
+                UseArcMotion = true,
+                StartPosition = petal.transform.position,
+                EndPosition = worldPosition + (outward * (isFullBloom ? 0.58f : 0.34f)) + new Vector3(0f, isFullBloom ? 0.32f : 0.18f, 0f),
+                ArcHeight = isFullBloom ? 0.28f : 0.12f
+            };
+            _transientVisuals.Add(visual);
+        }
+
+        if (!isFullBloom)
+        {
+            return;
+        }
+
+        for (int i = 0; i < 6; i++)
+        {
+            float angle = i * 60f * Mathf.Deg2Rad;
+            Vector3 outward = new(Mathf.Cos(angle), Mathf.Sin(angle), 0f);
+
+            GameObject crystal = new($"DeVect_IceCrystal_{i}");
+            crystal.transform.position = worldPosition + (outward * 0.12f);
+            crystal.transform.rotation = Quaternion.Euler(0f, 0f, (i * 60f) + 15f);
+            crystal.transform.localScale = new Vector3(0.14f, 0.14f, 1f);
+
+            SpriteRenderer crystalRenderer = crystal.AddComponent<SpriteRenderer>();
+            crystalRenderer.sprite = CreateIceCrystalSprite();
+            crystalRenderer.color = new Color(0.92f, 0.98f, 1f, 0.92f);
+            crystalRenderer.sortingLayerName = "HUD";
+            crystalRenderer.sortingOrder = 16;
+            _transientVisuals.Add(new TransientVisual(crystal, crystalRenderer, lifetime * 0.7f, outward * 0.65f, crystalRenderer.color, crystal.transform.localScale));
+        }
     }
 
     public void TickTransientVisuals(float deltaTime)
@@ -471,43 +544,43 @@ internal sealed class OrbVisualService
             new Vector3(0.52f, 0.52f, 1f));
     }
 
-    private static void AddBlackOrbMaterialLayers(Transform parent, Color baseColor)
+    private static void AddIceOrbMaterialLayers(Transform parent, Color baseColor)
     {
         CreateLayerRenderer(
             parent,
-            "VoidHalo",
-            CreateVoidRippleSprite(),
-            new Color(0.09f, 0.02f, 0.12f, 0.56f),
+            "IceHalo",
+            CreateIceBloomSprite(),
+            new Color(0.72f, 0.9f, 1f, 0.46f),
             8,
             Vector3.zero,
-            new Vector3(1.4f, 1.4f, 1f));
+            new Vector3(1.36f, 1.36f, 1f));
 
         CreateLayerRenderer(
             parent,
-            "VoidCore",
+            "IceCore",
             CreateCircleSprite(),
-            new Color(baseColor.r * 1.1f, baseColor.g * 0.82f, baseColor.b * 1.18f, 0.34f),
+            new Color(baseColor.r, baseColor.g, baseColor.b, 0.34f),
             11,
             new Vector3(0.015f, -0.015f, 0f),
             new Vector3(0.7f, 0.7f, 1f));
 
         CreateLayerRenderer(
             parent,
-            "VoidGloss",
+            "IceGloss",
             CreateHighlightSprite(),
-            new Color(0.76f, 0.62f, 0.92f, 0.52f),
+            new Color(0.94f, 0.98f, 1f, 0.72f),
             12,
             new Vector3(-0.08f, 0.09f, 0f),
             new Vector3(0.46f, 0.46f, 1f));
 
         CreateLayerRenderer(
             parent,
-            "VoidDroplet",
-            CreateVoidDropletSprite(),
-            new Color(0.14f, 0.05f, 0.18f, 0.72f),
+            "IceCrystal",
+            CreateIceCrystalSprite(),
+            new Color(0.86f, 0.96f, 1f, 0.62f),
             13,
-            new Vector3(0.11f, -0.1f, 0f),
-            new Vector3(0.22f, 0.22f, 1f));
+            new Vector3(0.11f, -0.06f, 0f),
+            new Vector3(0.18f, 0.18f, 1f));
     }
 
     private static SpriteRenderer CreateLayerRenderer(Transform parent, string name, Sprite sprite, Color color, int sortingOrder, Vector3 localPosition, Vector3 localScale)
@@ -762,11 +835,11 @@ internal sealed class OrbVisualService
         return inside;
     }
 
-    private static Sprite CreateVoidOrbSprite()
+    private static Sprite CreateIceOrbSprite()
     {
-        if (_voidOrbSprite != null)
+        if (_iceOrbSprite != null)
         {
-            return _voidOrbSprite;
+            return _iceOrbSprite;
         }
 
         const int size = 64;
@@ -774,13 +847,11 @@ internal sealed class OrbVisualService
         {
             filterMode = FilterMode.Bilinear,
             wrapMode = TextureWrapMode.Clamp,
-            name = "DeVect_VoidOrb"
+            name = "DeVect_IceOrb"
         };
 
         float radius = (size - 1) * 0.5f;
         Vector2 center = new(radius, radius);
-        Vector2 flowDirection = new(-0.45f, 0.89f);
-        flowDirection.Normalize();
         for (int y = 0; y < size; y++)
         {
             for (int x = 0; x < size; x++)
@@ -796,28 +867,25 @@ internal sealed class OrbVisualService
 
                 float edgeFade = Mathf.Clamp01((1f - distance) / 0.08f);
                 float sphereMask = Mathf.Clamp01(1f - (distance * distance));
-                float directional = Mathf.Clamp01(Vector2.Dot(offset.normalized, flowDirection));
-                float swirl = 0.5f + (0.5f * Mathf.Sin((offset.x * 8.5f) - (offset.y * 6.2f) + (distance * 7.5f)));
-                float ooze = Mathf.Clamp01(1f - Mathf.Abs(offset.x * 0.72f - offset.y * 0.46f) * 1.75f);
-                float brightness = 0.06f + (sphereMask * 0.16f) + (directional * 0.1f) + (swirl * 0.09f) + (ooze * 0.08f);
-                float r = brightness * 0.78f;
-                float g = brightness * 0.43f;
-                float b = brightness * 1.18f;
-                texture.SetPixel(x, y, new Color(r, g, b, edgeFade * 0.98f));
+                float frostVeinA = Mathf.Clamp01(1f - Mathf.Abs(offset.x + offset.y) * 3.2f);
+                float frostVeinB = Mathf.Clamp01(1f - Mathf.Abs(offset.x - offset.y) * 3.2f);
+                float coreGlow = Mathf.Clamp01(1f - distance * 1.35f);
+                float brightness = 0.14f + (sphereMask * 0.26f) + (Mathf.Max(frostVeinA, frostVeinB) * 0.18f) + (coreGlow * 0.16f);
+                texture.SetPixel(x, y, new Color(brightness * 0.84f, brightness * 0.96f, brightness, edgeFade * 0.98f));
             }
         }
 
         texture.Apply();
-        _voidOrbSprite = Sprite.Create(texture, new Rect(0f, 0f, size, size), new Vector2(0.5f, 0.5f), size);
-        _voidOrbSprite.name = "DeVect_VoidOrbSprite";
-        return _voidOrbSprite;
+        _iceOrbSprite = Sprite.Create(texture, new Rect(0f, 0f, size, size), new Vector2(0.5f, 0.5f), size);
+        _iceOrbSprite.name = "DeVect_IceOrbSprite";
+        return _iceOrbSprite;
     }
 
-    private static Sprite CreateVoidRippleSprite()
+    private static Sprite CreateIceBloomSprite()
     {
-        if (_voidRippleSprite != null)
+        if (_iceBloomSprite != null)
         {
-            return _voidRippleSprite;
+            return _iceBloomSprite;
         }
 
         const int size = 48;
@@ -825,7 +893,7 @@ internal sealed class OrbVisualService
         {
             filterMode = FilterMode.Bilinear,
             wrapMode = TextureWrapMode.Clamp,
-            name = "DeVect_VoidRipple"
+            name = "DeVect_IceBloom"
         };
 
         float radius = (size - 1) * 0.5f;
@@ -842,24 +910,25 @@ internal sealed class OrbVisualService
                     continue;
                 }
 
-                float uneven = 0.72f + (0.07f * Mathf.Sin(Mathf.Atan2(offset.y, offset.x) * 5f));
-                float shell = 1f - Mathf.Clamp01(Mathf.Abs(distance - uneven) / 0.16f);
-                float haze = Mathf.Clamp01(1f - distance) * 0.25f;
+                float angle = Mathf.Atan2(offset.y, offset.x);
+                float petalWave = 0.64f + (0.14f * Mathf.Cos(angle * 4f));
+                float shell = 1f - Mathf.Clamp01(Mathf.Abs(distance - petalWave) / 0.18f);
+                float haze = Mathf.Clamp01(1f - distance) * 0.36f;
                 texture.SetPixel(x, y, new Color(1f, 1f, 1f, Mathf.Clamp01(shell + haze)));
             }
         }
 
         texture.Apply();
-        _voidRippleSprite = Sprite.Create(texture, new Rect(0f, 0f, size, size), new Vector2(0.5f, 0.5f), size);
-        _voidRippleSprite.name = "DeVect_VoidRippleSprite";
-        return _voidRippleSprite;
+        _iceBloomSprite = Sprite.Create(texture, new Rect(0f, 0f, size, size), new Vector2(0.5f, 0.5f), size);
+        _iceBloomSprite.name = "DeVect_IceBloomSprite";
+        return _iceBloomSprite;
     }
 
-    private static Sprite CreateVoidDropletSprite()
+    private static Sprite CreateIcePetalSprite()
     {
-        if (_voidDropletSprite != null)
+        if (_icePetalSprite != null)
         {
-            return _voidDropletSprite;
+            return _icePetalSprite;
         }
 
         const int size = 32;
@@ -867,12 +936,13 @@ internal sealed class OrbVisualService
         {
             filterMode = FilterMode.Bilinear,
             wrapMode = TextureWrapMode.Clamp,
-            name = "DeVect_VoidDroplet"
+            name = "DeVect_IcePetal"
         };
 
-        Vector2 center = new(size * 0.46f, size * 0.54f);
-        float radiusX = size * 0.24f;
-        float radiusY = size * 0.32f;
+        Vector2 center = new(size * 0.5f, size * 0.34f);
+        float radiusX = size * 0.22f;
+        float radiusY = size * 0.26f;
+        Vector2 tip = new(size * 0.5f, size * 0.9f);
         for (int y = 0; y < size; y++)
         {
             for (int x = 0; x < size; x++)
@@ -880,22 +950,64 @@ internal sealed class OrbVisualService
                 float normalizedX = (x - center.x) / radiusX;
                 float normalizedY = (y - center.y) / radiusY;
                 float distance = (normalizedX * normalizedX) + (normalizedY * normalizedY);
-                if (distance > 1f)
+                float bodyMask = distance <= 1f ? Mathf.Pow(1f - distance, 1.2f) : 0f;
+                float tipMask = Mathf.Clamp01(1f - (Vector2.Distance(new Vector2(x, y), tip) / (size * 0.24f)));
+                float veinMask = Mathf.Clamp01(1f - Mathf.Abs(x - center.x) / (size * 0.12f)) * Mathf.Clamp01((y - center.y) / (size * 0.42f));
+                float alpha = Mathf.Clamp01(bodyMask + (tipMask * 0.58f));
+                texture.SetPixel(x, y, alpha <= 0f ? Color.clear : new Color(1f, 1f, 1f, Mathf.Clamp01(alpha + (veinMask * 0.1f))));
+            }
+        }
+
+        texture.Apply();
+        _icePetalSprite = Sprite.Create(texture, new Rect(0f, 0f, size, size), new Vector2(0.5f, 0.18f), size);
+        _icePetalSprite.name = "DeVect_IcePetalSprite";
+        return _icePetalSprite;
+    }
+
+    private static Sprite CreateIceCrystalSprite()
+    {
+        if (_iceCrystalSprite != null)
+        {
+            return _iceCrystalSprite;
+        }
+
+        const int size = 32;
+        Texture2D texture = new(size, size, TextureFormat.RGBA32, false)
+        {
+            filterMode = FilterMode.Bilinear,
+            wrapMode = TextureWrapMode.Clamp,
+            name = "DeVect_IceCrystal"
+        };
+
+        Vector2[] crystal =
+        {
+            new(size * 0.5f, size * 0.98f),
+            new(size * 0.7f, size * 0.58f),
+            new(size * 0.56f, size * 0.06f),
+            new(size * 0.32f, size * 0.52f)
+        };
+
+        for (int y = 0; y < size; y++)
+        {
+            for (int x = 0; x < size; x++)
+            {
+                Vector2 point = new(x, y);
+                if (!IsPointInPolygon(point, crystal))
                 {
                     texture.SetPixel(x, y, Color.clear);
                     continue;
                 }
 
-                float tail = Mathf.Clamp01(1f - Mathf.Abs((x - (size * 0.5f)) / (size * 0.18f))) * Mathf.Clamp01((y - (size * 0.68f)) / (size * 0.16f));
-                float alpha = Mathf.Clamp01(Mathf.Pow(1f - distance, 1.3f) + (tail * 0.75f));
-                texture.SetPixel(x, y, new Color(1f, 1f, 1f, alpha));
+                float centerGlow = Mathf.Clamp01(1f - (Mathf.Abs(x - (size * 0.5f)) / (size * 0.18f)));
+                float taper = Mathf.Clamp01(y / (size * 0.98f));
+                texture.SetPixel(x, y, new Color(0.92f, 0.98f, 1f, Mathf.Clamp01(0.38f + (centerGlow * 0.42f) + (taper * 0.2f))));
             }
         }
 
         texture.Apply();
-        _voidDropletSprite = Sprite.Create(texture, new Rect(0f, 0f, size, size), new Vector2(0.5f, 0.72f), size);
-        _voidDropletSprite.name = "DeVect_VoidDropletSprite";
-        return _voidDropletSprite;
+        _iceCrystalSprite = Sprite.Create(texture, new Rect(0f, 0f, size, size), new Vector2(0.5f, 0.08f), size);
+        _iceCrystalSprite.name = "DeVect_IceCrystalSprite";
+        return _iceCrystalSprite;
     }
 
     private static Sprite CreateLightningSprite(LightningVisualProfile profile)
