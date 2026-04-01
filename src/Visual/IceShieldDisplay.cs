@@ -5,15 +5,9 @@ namespace DeVect.Visual;
 internal sealed class IceShieldDisplay
 {
     private const int HudLayer = 27;
-    private const float FallbackHudViewportBaseX = 0.088f;
-    private const float FallbackHudViewportMaskSpacing = 0.0305f;
+    private const float HealthHudStartViewportX = 0.124f;
+    private const float HealthHudUnitViewportSpacing = 0.0295f;
     private const float HudViewportY = 0.92f;
-    private const float HudMaskAnchorWorldOffsetX = 0.18f;
-    private const float HudMaskAnchorWorldOffsetY = 0.01f;
-    private const float HudMaskSearchMinViewportX = 0.08f;
-    private const float HudMaskSearchMaxViewportX = 0.52f;
-    private const float HudMaskSearchMinViewportY = 0.82f;
-    private const float HudMaskSearchMaxViewportY = 0.99f;
     private static readonly Color ActivePetalColor = new(0.78f, 0.94f, 1f, 0.98f);
     private static readonly Color InactivePetalColor = new(0.42f, 0.56f, 0.68f, 0.24f);
     private static readonly Vector3[] PetalOffsets =
@@ -65,7 +59,7 @@ internal sealed class IceShieldDisplay
             return;
         }
 
-        Vector3 worldPosition = TryGetMaskAnchorWorldPosition(hudCamera) ?? GetFallbackWorldPosition(hudCamera);
+        Vector3 worldPosition = GetHudWorldPosition(hudCamera);
         _root.transform.position = worldPosition;
         _root.transform.rotation = Quaternion.identity;
         _root.transform.localScale = Vector3.one;
@@ -141,119 +135,16 @@ internal sealed class IceShieldDisplay
         obj.layer = HudLayer;
     }
 
-    private static Vector3? TryGetMaskAnchorWorldPosition(Camera hudCamera)
-    {
-        Transform searchRoot = hudCamera.transform.parent != null ? hudCamera.transform.parent : hudCamera.transform;
-        SpriteRenderer[] renderers = searchRoot.GetComponentsInChildren<SpriteRenderer>(true);
-        SpriteRenderer? rightmostMaskRenderer = null;
-        float bestMaxX = float.MinValue;
-
-        foreach (SpriteRenderer renderer in renderers)
-        {
-            if (!IsLikelyHealthMaskRenderer(renderer, hudCamera))
-            {
-                continue;
-            }
-
-            float candidateMaxX = renderer.bounds.max.x;
-            if (candidateMaxX <= bestMaxX)
-            {
-                continue;
-            }
-
-            bestMaxX = candidateMaxX;
-            rightmostMaskRenderer = renderer;
-        }
-
-        if (rightmostMaskRenderer == null)
-        {
-            return null;
-        }
-
-        Vector3 anchor = rightmostMaskRenderer.bounds.center;
-        anchor.x = bestMaxX + HudMaskAnchorWorldOffsetX;
-        anchor.y += HudMaskAnchorWorldOffsetY;
-        anchor.z = 0f;
-        return anchor;
-    }
-
-    private static Vector3 GetFallbackWorldPosition(Camera hudCamera)
+    private static Vector3 GetHudWorldPosition(Camera hudCamera)
     {
         PlayerData? playerData = PlayerData.instance;
-        int maxHealth = Mathf.Max(5, playerData != null ? playerData.GetInt("maxHealth") : 5);
-        int blueHealth = Mathf.Max(0, playerData != null ? playerData.GetInt("healthBlue") : 0);
-        float viewportX = FallbackHudViewportBaseX + ((maxHealth + blueHealth) * FallbackHudViewportMaskSpacing);
+        int maxHealth = Mathf.Max(5, playerData?.maxHealth ?? 5);
+        int blueHealth = Mathf.Max(0, playerData?.healthBlue ?? 0);
+        float viewportX = HealthHudStartViewportX + ((maxHealth + blueHealth) * HealthHudUnitViewportSpacing);
         float worldDistance = Mathf.Abs(hudCamera.transform.position.z);
         Vector3 worldPosition = hudCamera.ViewportToWorldPoint(new Vector3(viewportX, HudViewportY, worldDistance));
         worldPosition.z = 0f;
         return worldPosition;
-    }
-
-    private static bool IsLikelyHealthMaskRenderer(SpriteRenderer renderer, Camera hudCamera)
-    {
-        if (renderer == null || renderer.sprite == null || !renderer.gameObject.activeInHierarchy)
-        {
-            return false;
-        }
-
-        if (!renderer.enabled || renderer.sortingLayerName != "HUD")
-        {
-            return false;
-        }
-
-        string hierarchyName = GetHierarchyName(renderer.transform);
-        if (!ContainsHealthMarker(hierarchyName) || ContainsExcludedMarker(hierarchyName))
-        {
-            return false;
-        }
-
-        Vector3 viewportPosition = hudCamera.WorldToViewportPoint(renderer.bounds.center);
-        if (viewportPosition.z < 0f)
-        {
-            return false;
-        }
-
-        return viewportPosition.x >= HudMaskSearchMinViewportX
-            && viewportPosition.x <= HudMaskSearchMaxViewportX
-            && viewportPosition.y >= HudMaskSearchMinViewportY
-            && viewportPosition.y <= HudMaskSearchMaxViewportY;
-    }
-
-    private static string GetHierarchyName(Transform transform)
-    {
-        System.Text.StringBuilder builder = new();
-        Transform? current = transform;
-        int depth = 0;
-        while (current != null && depth < 6)
-        {
-            if (builder.Length > 0)
-            {
-                builder.Append('/');
-            }
-
-            builder.Append(current.name);
-            current = current.parent;
-            depth++;
-        }
-
-        return builder.ToString().ToLowerInvariant();
-    }
-
-    private static bool ContainsHealthMarker(string hierarchyName)
-    {
-        return hierarchyName.Contains("health")
-            || hierarchyName.Contains("blue")
-            || hierarchyName.Contains("joni");
-    }
-
-    private static bool ContainsExcludedMarker(string hierarchyName)
-    {
-        return hierarchyName.Contains("geo")
-            || hierarchyName.Contains("soul")
-            || hierarchyName.Contains("orb")
-            || hierarchyName.Contains("flower")
-            || hierarchyName.Contains("charm")
-            || hierarchyName.Contains("inventory");
     }
 
     private void SetVisible(bool visible)
