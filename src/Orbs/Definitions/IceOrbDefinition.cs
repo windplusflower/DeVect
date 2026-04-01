@@ -26,23 +26,22 @@ internal sealed class IceOrbDefinition : IOrbDefinition
 
     public void OnPassive(OrbTriggerContext context, OrbInstance instance)
     {
-        int gainedPetals = _shieldState.AddShield(1);
-        if (gainedPetals > 0)
-        {
-            context.Visuals.SpawnIcePetalEffect(context.Hero.transform.position + new Vector3(0f, 1.1f, 0f), 1);
-        }
-
-        context.LogDebug($"Ice passive granted {gainedPetals}/4 shield. Current petals={_shieldState.GetPetalCount()}.");
+        ApplyShieldGain(context, 1, 1, 1.1f, "passive");
     }
 
     public void OnEvocation(OrbTriggerContext context, OrbInstance instance)
     {
-        int gainedPetals = _shieldState.AddShield(3);
+        ApplyShieldGain(context, 3, IceShieldState.PetalsPerShield, 1.15f, "evocation");
+    }
+
+    private void ApplyShieldGain(OrbTriggerContext context, int petalsToAdd, int effectPetalCount, float effectYOffset, string sourceLabel)
+    {
+        int gainedPetals = _shieldState.AddShield(petalsToAdd);
         if (gainedPetals > 0)
         {
-            context.Visuals.SpawnIcePetalEffect(context.Hero.transform.position + new Vector3(0f, 1.15f, 0f), IceShieldState.PetalsPerShield);
+            context.Visuals.SpawnIcePetalEffect(context.Hero.transform.position + new Vector3(0f, effectYOffset, 0f), effectPetalCount);
         }
 
-        context.LogDebug($"Ice evocation granted {gainedPetals}/4 shield. Current petals={_shieldState.GetPetalCount()}.");
+        context.LogDebug($"Ice {sourceLabel} requested {petalsToAdd} petals, granted {gainedPetals} petals. Current petals={_shieldState.GetPetalCount()}.");
     }
 }

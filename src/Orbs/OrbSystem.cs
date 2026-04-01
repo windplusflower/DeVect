@@ -304,6 +304,7 @@ internal sealed class OrbSystem
             return;
         }
 
+        _logDebug($"TriggerEvocation -> spawnType={spawnType}, evictedOrb.TypeId={evictedOrb.TypeId}; triggering evocation.");
         evictedOrb.Definition.OnEvocation(CreateTriggerContext(hero), evictedOrb);
     }
 
