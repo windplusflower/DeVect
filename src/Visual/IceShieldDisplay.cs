@@ -29,6 +29,7 @@ internal sealed class IceShieldDisplay
         new Vector3(0f, -0.18f, 0f),
         new Vector3(-0.18f, 0f, 0f)
     };
+    private static readonly Vector3 MaskAnchorWorldOffset = new(MaskAnchorWorldOffsetX, MaskAnchorWorldOffsetY, 0f);
 
     // 花瓣sprite数组：上、右、下、左 (对应索引 0,1,2,3)
     private static Sprite?[] _petalSprites = new Sprite?[4];
@@ -206,6 +207,7 @@ internal sealed class IceShieldDisplay
         float viewportX = HealthHudStartViewportX + ((maxHealth + blueHealth) * HealthHudUnitViewportSpacing);
         float worldDistance = Mathf.Abs(hudCamera.transform.position.z);
         Vector3 worldPosition = hudCamera.ViewportToWorldPoint(new Vector3(viewportX, HudViewportY, worldDistance));
+        worldPosition += MaskAnchorWorldOffset;
         worldPosition.z = 0f;
         return worldPosition;
     }
@@ -224,10 +226,8 @@ internal sealed class IceShieldDisplay
             }
 
             Bounds maskBounds = maskRenderer.bounds;
-            worldPosition = new Vector3(
-                maskBounds.max.x + MaskAnchorWorldOffsetX,
-                maskBounds.center.y + MaskAnchorWorldOffsetY,
-                0f);
+            worldPosition = new Vector3(maskBounds.max.x, maskBounds.center.y, 0f) + MaskAnchorWorldOffset;
+            worldPosition.z = 0f;
             return true;
         }
 
@@ -336,14 +336,7 @@ internal sealed class IceShieldDisplay
     private static bool IsEligibleHudRenderer(Camera hudCamera, Renderer renderer, bool requireHealthKeyword)
     {
         if (renderer == null ||
-            !renderer.gameObject.activeInHierarchy ||
-            renderer.gameObject.layer != DefaultHudLayer)
-        {
-            return false;
-        }
-
-        string sortingLayerName = renderer.sortingLayerID != 0 ? SortingLayer.IDToName(renderer.sortingLayerID) : renderer.sortingLayerName;
-        if (sortingLayerName != DefaultHudSortingLayerName)
+            !renderer.gameObject.activeInHierarchy)
         {
             return false;
         }
