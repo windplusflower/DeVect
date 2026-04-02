@@ -5,7 +5,8 @@ namespace DeVect.Combat;
 internal sealed class IceShieldState
 {
     public const int PetalsPerShield = 4;
-    public const int MaxPetals = 4;
+    public const int MaxShieldLayers = 4;
+    public const int MaxPetals = PetalsPerShield * MaxShieldLayers;
 
     private int _petalCount;
 

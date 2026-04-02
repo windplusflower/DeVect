@@ -1,3 +1,4 @@
+using DeVect.Combat;
 using UnityEngine;
 
 namespace DeVect.Visual;
@@ -10,6 +11,9 @@ internal sealed class IceShieldDisplay
     private const float HudViewportY = 0.92f;
     private const float MaskAnchorWorldOffsetX = 0.22f;
     private const float MaskAnchorWorldOffsetY = -0.01f;
+    private const int PetalsPerLayer = IceShieldState.PetalsPerShield;
+    private const int LayerCount = IceShieldState.MaxShieldLayers;
+    private const int MaxPetals = IceShieldState.MaxPetals;
     private static readonly string[] HealthNameKeywords = { "health", "mask", "blue", "joni", "lifeblood", "hp" };
     private static readonly Color ActivePetalColor = new(0.78f, 0.94f, 1f, 0.98f);
     private static readonly Color InactivePetalColor = new(0.42f, 0.56f, 0.68f, 0.24f);
@@ -28,7 +32,7 @@ internal sealed class IceShieldDisplay
 
     private GameObject? _root;
     private SpriteRenderer? _coreRenderer;
-    private SpriteRenderer[] _petalRenderers = new SpriteRenderer[4];
+    private SpriteRenderer[] _petalRenderers = new SpriteRenderer[MaxPetals];
 
     // Base64 encoded petal images (ice crystal flower petals)
     // petal_up.png - 向上指的花瓣
@@ -74,11 +78,15 @@ internal sealed class IceShieldDisplay
             return;
         }
 
-        _coreRenderer.color = new Color(0.84f, 0.96f, 1f, 0.3f + (0.1f * petalCount));
+        float shieldFill = petalCount / (float)MaxPetals;
+        _coreRenderer.color = new Color(0.84f, 0.96f, 1f, 0.32f + (0.44f * shieldFill));
         for (int i = 0; i < _petalRenderers.Length; i++)
         {
             SpriteRenderer renderer = _petalRenderers[i];
-            renderer.color = i < petalCount ? ActivePetalColor : InactivePetalColor;
+            int layerIndex = i / PetalsPerLayer;
+            float layerFade = 1f - (layerIndex * 0.08f);
+            Color color = i < petalCount ? ActivePetalColor : InactivePetalColor;
+            renderer.color = new Color(color.r, color.g, color.b, color.a * layerFade);
         }
     }
 
@@ -91,7 +99,7 @@ internal sealed class IceShieldDisplay
 
         _root = null;
         _coreRenderer = null;
-        _petalRenderers = new SpriteRenderer[4];
+        _petalRenderers = new SpriteRenderer[MaxPetals];
     }
 
     private void EnsureBuilt()
@@ -114,22 +122,27 @@ internal sealed class IceShieldDisplay
         _coreRenderer.sortingOrder = 18;
         _coreRenderer.transform.localScale = new Vector3(0.16f, 0.16f, 1f);
 
-        // 创建4个花瓣sprite
-        for (int i = 0; i < _petalRenderers.Length; i++)
+        // 创建 4 层护盾 HUD，每层 4 瓣
+        for (int layerIndex = 0; layerIndex < LayerCount; layerIndex++)
         {
-            GameObject petal = new($"Petal_{i}");
-            petal.transform.SetParent(_root.transform, false);
-            ApplyHudLayer(petal);
-            petal.transform.localPosition = PetalOffsets[i];
-            petal.transform.localScale = new Vector3(0.22f, 0.22f, 1f);
-            // 不再需要旋转，每个方向使用不同的sprite
-            petal.transform.localRotation = Quaternion.identity;
+            float layerScale = 0.18f + (0.05f * layerIndex);
+            float layerOffsetScale = 0.72f + (0.18f * layerIndex);
+            for (int direction = 0; direction < PetalsPerLayer; direction++)
+            {
+                int petalIndex = (layerIndex * PetalsPerLayer) + direction;
+                GameObject petal = new($"Petal_{layerIndex}_{direction}");
+                petal.transform.SetParent(_root.transform, false);
+                ApplyHudLayer(petal);
+                petal.transform.localPosition = PetalOffsets[direction] * layerOffsetScale;
+                petal.transform.localScale = new Vector3(layerScale, layerScale, 1f);
+                petal.transform.localRotation = Quaternion.identity;
 
-            SpriteRenderer renderer = petal.AddComponent<SpriteRenderer>();
-            renderer.sprite = GetPetalSprite(i);
-            renderer.sortingLayerName = "HUD";
-            renderer.sortingOrder = 19;
-            _petalRenderers[i] = renderer;
+                SpriteRenderer renderer = petal.AddComponent<SpriteRenderer>();
+                renderer.sprite = GetPetalSprite(direction);
+                renderer.sortingLayerName = "HUD";
+                renderer.sortingOrder = 19 + layerIndex;
+                _petalRenderers[petalIndex] = renderer;
+            }
         }
     }
 
