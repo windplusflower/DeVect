@@ -11,8 +11,11 @@ internal sealed class IceShieldDisplay
     private const float HealthHudStartViewportX = 0.124f;
     private const float HealthHudUnitViewportSpacing = 0.0295f;
     private const float HudViewportY = 0.92f;
-    private const float MaskAnchorWorldOffsetX = 0.22f;
+    private const float MaskAnchorWorldOffsetX = 0.26f;
     private const float MaskAnchorWorldOffsetY = -0.01f;
+    private const float ShieldGroupSpacing = 0.56f;
+    private const float ShieldCoreScale = 0.16f;
+    private const float ShieldPetalScale = 0.18f;
     private const int PetalsPerLayer = IceShieldState.PetalsPerShield;
     private const int LayerCount = IceShieldState.MaxShieldLayers;
     private const int MaxPetals = IceShieldState.MaxPetals;
@@ -32,9 +35,16 @@ internal sealed class IceShieldDisplay
     private static Sprite? _coreSprite;
     private static Sprite? _hudIconSprite;
     private static readonly HudRenderConfig DefaultHudRenderConfig = new(DefaultHudLayer, DefaultHudSortingLayerName, DefaultHudSortingOrder);
+    private static readonly Vector3[] ShieldGroupOffsets =
+    {
+        new(0f, 0f, 0f),
+        new(ShieldGroupSpacing, 0f, 0f),
+        new(ShieldGroupSpacing * 2f, 0f, 0f),
+        new(ShieldGroupSpacing * 3f, 0f, 0f)
+    };
 
     private GameObject? _root;
-    private SpriteRenderer? _coreRenderer;
+    private SpriteRenderer[] _coreRenderers = new SpriteRenderer[LayerCount];
     private SpriteRenderer[] _petalRenderers = new SpriteRenderer[MaxPetals];
     private HudRenderConfig _currentHudRenderConfig = DefaultHudRenderConfig;
 
@@ -65,7 +75,7 @@ internal sealed class IceShieldDisplay
         }
 
         EnsureBuilt();
-        if (_root == null || _coreRenderer == null)
+        if (_root == null)
         {
             return;
         }
@@ -83,12 +93,38 @@ internal sealed class IceShieldDisplay
             return;
         }
 
+        int visibleShieldCount = Mathf.CeilToInt(petalCount / (float)PetalsPerLayer);
         float shieldFill = petalCount / (float)MaxPetals;
-        _coreRenderer.color = new Color(0.84f, 0.96f, 1f, 0.32f + (0.44f * shieldFill));
+        for (int layerIndex = 0; layerIndex < _coreRenderers.Length; layerIndex++)
+        {
+            SpriteRenderer? coreRenderer = _coreRenderers[layerIndex];
+            if (coreRenderer == null)
+            {
+                continue;
+            }
+
+            bool shieldVisible = layerIndex < visibleShieldCount;
+            coreRenderer.enabled = shieldVisible;
+            if (!shieldVisible)
+            {
+                continue;
+            }
+
+            float layerFade = 1f - (layerIndex * 0.08f);
+            coreRenderer.color = new Color(0.84f, 0.96f, 1f, (0.32f + (0.44f * shieldFill)) * layerFade);
+        }
+
         for (int i = 0; i < _petalRenderers.Length; i++)
         {
             SpriteRenderer renderer = _petalRenderers[i];
             int layerIndex = i / PetalsPerLayer;
+            bool shieldVisible = layerIndex < visibleShieldCount;
+            renderer.enabled = shieldVisible;
+            if (!shieldVisible)
+            {
+                continue;
+            }
+
             float layerFade = 1f - (layerIndex * 0.08f);
             Color color = i < petalCount ? ActivePetalColor : InactivePetalColor;
             renderer.color = new Color(color.r, color.g, color.b, color.a * layerFade);
@@ -103,7 +139,7 @@ internal sealed class IceShieldDisplay
         }
 
         _root = null;
-        _coreRenderer = null;
+        _coreRenderers = new SpriteRenderer[LayerCount];
         _petalRenderers = new SpriteRenderer[MaxPetals];
     }
 
@@ -117,27 +153,30 @@ internal sealed class IceShieldDisplay
         _root = new GameObject("DeVect_IceShieldDisplay");
         ApplyHudLayer(_root, _currentHudRenderConfig.HudLayer);
 
-        // 创建核心发光球
-        GameObject core = new("Core");
-        core.transform.SetParent(_root.transform, false);
-        ApplyHudLayer(core, _currentHudRenderConfig.HudLayer);
-        _coreRenderer = core.AddComponent<SpriteRenderer>();
-        _coreRenderer.sprite = CreateCoreSprite();
-        _coreRenderer.transform.localScale = new Vector3(0.16f, 0.16f, 1f);
-
-        // 创建 4 层护盾 HUD，每层 4 瓣
+        // 每个护盾层渲染为一个独立的 HUD 盾实例，并沿血条右侧横向排开。
         for (int layerIndex = 0; layerIndex < LayerCount; layerIndex++)
         {
-            float layerScale = 0.18f + (0.05f * layerIndex);
-            float layerOffsetScale = 0.72f + (0.18f * layerIndex);
+            GameObject shieldGroup = new($"Shield_{layerIndex}");
+            shieldGroup.transform.SetParent(_root.transform, false);
+            shieldGroup.transform.localPosition = ShieldGroupOffsets[layerIndex];
+            ApplyHudLayer(shieldGroup, _currentHudRenderConfig.HudLayer);
+
+            GameObject core = new("Core");
+            core.transform.SetParent(shieldGroup.transform, false);
+            ApplyHudLayer(core, _currentHudRenderConfig.HudLayer);
+            SpriteRenderer coreRenderer = core.AddComponent<SpriteRenderer>();
+            coreRenderer.sprite = CreateCoreSprite();
+            coreRenderer.transform.localScale = new Vector3(ShieldCoreScale, ShieldCoreScale, 1f);
+            _coreRenderers[layerIndex] = coreRenderer;
+
             for (int direction = 0; direction < PetalsPerLayer; direction++)
             {
                 int petalIndex = (layerIndex * PetalsPerLayer) + direction;
                 GameObject petal = new($"Petal_{layerIndex}_{direction}");
-                petal.transform.SetParent(_root.transform, false);
+                petal.transform.SetParent(shieldGroup.transform, false);
                 ApplyHudLayer(petal, _currentHudRenderConfig.HudLayer);
-                petal.transform.localPosition = PetalOffsets[direction] * layerOffsetScale;
-                petal.transform.localScale = new Vector3(layerScale, layerScale, 1f);
+                petal.transform.localPosition = PetalOffsets[direction];
+                petal.transform.localScale = new Vector3(ShieldPetalScale, ShieldPetalScale, 1f);
                 petal.transform.localRotation = Quaternion.identity;
 
                 SpriteRenderer renderer = petal.AddComponent<SpriteRenderer>();
@@ -210,11 +249,17 @@ internal sealed class IceShieldDisplay
             _root.layer = config.HudLayer;
         }
 
-        if (_coreRenderer != null)
+        for (int i = 0; i < _coreRenderers.Length; i++)
         {
-            _coreRenderer.gameObject.layer = config.HudLayer;
-            _coreRenderer.sortingLayerName = config.SortingLayerName;
-            _coreRenderer.sortingOrder = config.SortingOrder;
+            SpriteRenderer? coreRenderer = _coreRenderers[i];
+            if (coreRenderer == null)
+            {
+                continue;
+            }
+
+            coreRenderer.gameObject.layer = config.HudLayer;
+            coreRenderer.sortingLayerName = config.SortingLayerName;
+            coreRenderer.sortingOrder = config.SortingOrder;
         }
 
         for (int i = 0; i < _petalRenderers.Length; i++)
