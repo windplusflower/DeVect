@@ -84,6 +84,7 @@ public partial class DeVectMod : Mod, IGlobalSettings<DeVectSettings>, ILocalSet
     {
         _localSettings = settings ?? new DeVectLocalSettings();
         ClearPersistedIceShield();
+        _iceShieldState.Clear();
     }
 
     public DeVectSettings OnSaveGlobal() => _settings;
@@ -452,7 +453,6 @@ public partial class DeVectMod : Mod, IGlobalSettings<DeVectSettings>, ILocalSet
     private void ClearPersistedIceShield()
     {
         _localSettings.IceShieldPetals = 0;
-        _iceShieldState.Clear();
     }
 
     private void ResetRuntimeState()
