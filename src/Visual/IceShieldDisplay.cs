@@ -8,6 +8,9 @@ internal sealed class IceShieldDisplay
     private const float HealthHudStartViewportX = 0.124f;
     private const float HealthHudUnitViewportSpacing = 0.0295f;
     private const float HudViewportY = 0.92f;
+    private const float MaskAnchorWorldOffsetX = 0.22f;
+    private const float MaskAnchorWorldOffsetY = -0.01f;
+    private static readonly string[] HealthNameKeywords = { "health", "mask", "blue", "joni", "lifeblood", "hp" };
     private static readonly Color ActivePetalColor = new(0.78f, 0.94f, 1f, 0.98f);
     private static readonly Color InactivePetalColor = new(0.42f, 0.56f, 0.68f, 0.24f);
     private static readonly Vector3[] PetalOffsets =
@@ -137,6 +140,11 @@ internal sealed class IceShieldDisplay
 
     private static Vector3 GetHudWorldPosition(Camera hudCamera)
     {
+        if (TryGetMaskAnchorWorldPosition(hudCamera, out Vector3 anchorWorldPosition))
+        {
+            return anchorWorldPosition;
+        }
+
         PlayerData? playerData = PlayerData.instance;
         int maxHealth = Mathf.Max(5, playerData?.maxHealth ?? 5);
         int blueHealth = Mathf.Max(0, playerData?.healthBlue ?? 0);
@@ -145,6 +153,99 @@ internal sealed class IceShieldDisplay
         Vector3 worldPosition = hudCamera.ViewportToWorldPoint(new Vector3(viewportX, HudViewportY, worldDistance));
         worldPosition.z = 0f;
         return worldPosition;
+    }
+
+    private static bool TryGetMaskAnchorWorldPosition(Camera hudCamera, out Vector3 worldPosition)
+    {
+        worldPosition = default;
+
+        Transform? hudRoot = hudCamera.transform.parent != null ? hudCamera.transform.parent : hudCamera.transform;
+        if (TryGetRightmostHudSpriteBounds(hudCamera, hudRoot, requireHealthKeyword: true, out Bounds maskBounds) ||
+            TryGetRightmostHudSpriteBounds(hudCamera, hudRoot, requireHealthKeyword: false, out maskBounds))
+        {
+            worldPosition = new Vector3(
+                maskBounds.max.x + MaskAnchorWorldOffsetX,
+                maskBounds.center.y + MaskAnchorWorldOffsetY,
+                0f);
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool TryGetRightmostHudSpriteBounds(Camera hudCamera, Transform root, bool requireHealthKeyword, out Bounds bestBounds)
+    {
+        bestBounds = default;
+        SpriteRenderer[] renderers = root.GetComponentsInChildren<SpriteRenderer>(true);
+        bool found = false;
+        float bestRightEdge = float.NegativeInfinity;
+
+        foreach (SpriteRenderer renderer in renderers)
+        {
+            if (!IsEligibleHudSpriteRenderer(hudCamera, renderer, requireHealthKeyword))
+            {
+                continue;
+            }
+
+            Bounds bounds = renderer.bounds;
+            if (!found || bounds.max.x > bestRightEdge)
+            {
+                bestBounds = bounds;
+                bestRightEdge = bounds.max.x;
+                found = true;
+            }
+        }
+
+        return found;
+    }
+
+    private static bool IsEligibleHudSpriteRenderer(Camera hudCamera, SpriteRenderer renderer, bool requireHealthKeyword)
+    {
+        if (renderer == null ||
+            renderer.sprite == null ||
+            !renderer.gameObject.activeInHierarchy ||
+            renderer.sortingLayerName != "HUD" ||
+            renderer.gameObject.layer != HudLayer)
+        {
+            return false;
+        }
+
+        string objectName = renderer.gameObject.name;
+        if (objectName.StartsWith("DeVect_"))
+        {
+            return false;
+        }
+
+        string objectNameLower = objectName.ToLowerInvariant();
+        bool matchesHealthKeyword = false;
+        for (int i = 0; i < HealthNameKeywords.Length; i++)
+        {
+            if (objectNameLower.Contains(HealthNameKeywords[i]))
+            {
+                matchesHealthKeyword = true;
+                break;
+            }
+        }
+
+        if (requireHealthKeyword && !matchesHealthKeyword)
+        {
+            return false;
+        }
+
+        Bounds bounds = renderer.bounds;
+        Vector3 viewport = hudCamera.WorldToViewportPoint(bounds.center);
+        if (viewport.z <= 0f || viewport.y < 0.78f || viewport.y > 1.05f || viewport.x < -0.05f || viewport.x > 0.45f)
+        {
+            return false;
+        }
+
+        Vector3 size = bounds.size;
+        if (size.x <= 0f || size.y <= 0f || size.x > 2.5f || size.y > 2.5f)
+        {
+            return false;
+        }
+
+        return true;
     }
 
     private void SetVisible(bool visible)
