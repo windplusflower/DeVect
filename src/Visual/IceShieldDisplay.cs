@@ -11,8 +11,8 @@ internal sealed class IceShieldDisplay
     private const float HealthHudStartViewportX = 0.124f;
     private const float HealthHudUnitViewportSpacing = 0.0295f;
     private const float HudViewportY = 0.92f;
-    private const float MaskAnchorWorldOffsetX = 0.26f;
-    private const float MaskAnchorWorldOffsetY = -0.01f;
+    private const float MaskAnchorWorldOffsetX = 0.32f;
+    private const float MaskAnchorWorldOffsetY = -0.06f;
     private const float ShieldGroupSpacing = 0.56f;
     private const float ShieldCoreScale = 0.16f;
     private const float ShieldPetalScale = 0.18f;
