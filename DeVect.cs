@@ -83,14 +83,14 @@ public partial class DeVectMod : Mod, IGlobalSettings<DeVectSettings>, ILocalSet
     public void OnLoadLocal(DeVectLocalSettings settings)
     {
         _localSettings = settings ?? new DeVectLocalSettings();
-        _iceShieldState.SetPetalCount(_localSettings.IceShieldPetals);
+        ClearPersistedIceShield();
     }
 
     public DeVectSettings OnSaveGlobal() => _settings;
 
     public DeVectLocalSettings OnSaveLocal()
     {
-        SyncIceShieldToLocalSettings();
+        ClearPersistedIceShield();
         return _localSettings;
     }
 
@@ -431,7 +431,7 @@ public partial class DeVectMod : Mod, IGlobalSettings<DeVectSettings>, ILocalSet
 
     private void OnBeforeSavegameSave(SaveGameData data)
     {
-        SyncIceShieldToLocalSettings();
+        ClearPersistedIceShield();
 
         if (!_settings.Enabled || _isShuttingDown)
         {
@@ -445,12 +445,14 @@ public partial class DeVectMod : Mod, IGlobalSettings<DeVectSettings>, ILocalSet
         }
 
         EnsureOrbSystem();
+        _orbSystem?.ClearIceShield();
         _orbSystem?.ClearGeneratedOrbs();
     }
 
-    private void SyncIceShieldToLocalSettings()
+    private void ClearPersistedIceShield()
     {
-        _localSettings.IceShieldPetals = _iceShieldState.GetPetalCount();
+        _localSettings.IceShieldPetals = 0;
+        _iceShieldState.Clear();
     }
 
     private void ResetRuntimeState()

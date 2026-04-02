@@ -313,6 +313,12 @@ internal sealed class OrbSystem
         _logDebug("Cleared all generated orbs on bench save.");
     }
 
+    public void ClearIceShield()
+    {
+        _shieldState.Clear();
+        _logDebug("Cleared ice shield on bench save/load.");
+    }
+
     public bool ShouldInjectSpellFsm(PlayMakerFSM fsm, HeroController hero)
     {
         return CanProcess() && fsm != null && !_spellFsmInjected && fsm.gameObject == hero.gameObject && fsm.FsmName == "Spell Control";
