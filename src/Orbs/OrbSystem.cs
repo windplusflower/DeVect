@@ -10,6 +10,27 @@ using UnityEngine;
 
 namespace DeVect.Orbs;
 
+internal readonly struct HeroDamageInterceptionResult
+{
+    public HeroDamageInterceptionResult(int damageToPassIntoTakeDamage, bool shouldForceFullHitStateWithoutHealthLoss, int absorbedDamage)
+    {
+        DamageToPassIntoTakeDamage = damageToPassIntoTakeDamage;
+        ShouldForceFullHitStateWithoutHealthLoss = shouldForceFullHitStateWithoutHealthLoss;
+        AbsorbedDamage = absorbedDamage;
+    }
+
+    public int DamageToPassIntoTakeDamage { get; }
+
+    public bool ShouldForceFullHitStateWithoutHealthLoss { get; }
+
+    public int AbsorbedDamage { get; }
+
+    public static HeroDamageInterceptionResult PassThrough(int damageAmount)
+    {
+        return new HeroDamageInterceptionResult(damageAmount, false, 0);
+    }
+}
+
 internal sealed class OrbSystem
 {
     private readonly Func<bool> _isEnabled;
@@ -29,6 +50,7 @@ internal sealed class OrbSystem
     private bool _parryWindowConsumed;
     private int _lastShadowDashDodgeAdvanceFrame = -1;
     private bool _spellFsmInjected;
+    private bool _pendingZeroHealthLossDamage;
 
     public OrbSystem(OrbSystemDependencies dependencies)
     {
@@ -72,12 +94,12 @@ internal sealed class OrbSystem
         _combatService.TickDebugVisuals();
     }
 
-    public int OnHeroTakeDamage(ref int hazardType, int damageAmount)
+    public HeroDamageInterceptionResult OnHeroTakeDamage(ref int hazardType, int damageAmount)
     {
         HeroController? hero = _getHero();
         if (!CanProcess() || damageAmount <= 0 || hero == null || !CanHeroTakeDamage(hero, hazardType))
         {
-            return damageAmount;
+            return HeroDamageInterceptionResult.PassThrough(damageAmount);
         }
 
         int remainingDamage = _shieldState.AbsorbDamage(damageAmount, out int absorbedDamage);
@@ -86,7 +108,40 @@ internal sealed class OrbSystem
             _logDebug($"Ice shield absorbed {absorbedDamage} damage. Remaining petals={_shieldState.GetPetalCount()}.");
         }
 
-        return remainingDamage;
+        if (absorbedDamage <= 0)
+        {
+            return HeroDamageInterceptionResult.PassThrough(damageAmount);
+        }
+
+        bool shouldForceFullHitStateWithoutHealthLoss = remainingDamage <= 0;
+        int damageToPassIntoTakeDamage = shouldForceFullHitStateWithoutHealthLoss ? damageAmount : remainingDamage;
+        return new HeroDamageInterceptionResult(damageToPassIntoTakeDamage, shouldForceFullHitStateWithoutHealthLoss, absorbedDamage);
+    }
+
+    public void MarkPendingZeroHealthLossDamage()
+    {
+        _pendingZeroHealthLossDamage = true;
+    }
+
+    public void ClearPendingZeroHealthLossDamage()
+    {
+        _pendingZeroHealthLossDamage = false;
+    }
+
+    public int OnHeroAfterTakeDamage(int hazardType, int damageAmount)
+    {
+        if (!CanProcess())
+        {
+            return damageAmount;
+        }
+
+        if (_pendingZeroHealthLossDamage)
+        {
+            _pendingZeroHealthLossDamage = false;
+            return 0;
+        }
+
+        return damageAmount;
     }
 
     public void OnHeroTookDamage(int hazardType, int damageAmount)
@@ -223,6 +278,7 @@ internal sealed class OrbSystem
         _parryWindowConsumed = false;
         _lastShadowDashDodgeAdvanceFrame = -1;
         _spellFsmInjected = false;
+        _pendingZeroHealthLossDamage = false;
     }
 
     public void OnShutdown()
@@ -231,6 +287,7 @@ internal sealed class OrbSystem
         _parryWindowConsumed = false;
         _lastShadowDashDodgeAdvanceFrame = -1;
         _spellFsmInjected = false;
+        _pendingZeroHealthLossDamage = false;
         _combatService.DisposeDebugVisuals();
         _iceShieldDisplay.Dispose();
         _runtime.Dispose();
@@ -242,6 +299,7 @@ internal sealed class OrbSystem
         _parryWindowConsumed = false;
         _lastShadowDashDodgeAdvanceFrame = -1;
         _spellFsmInjected = false;
+        _pendingZeroHealthLossDamage = false;
         _shieldState.Clear();
         _combatService.DisposeDebugVisuals();
         _iceShieldDisplay.Dispose();

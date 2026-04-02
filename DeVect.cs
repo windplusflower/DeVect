@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using DeVect.Combat;
 using DeVect.Fsm;
 using DeVect.Orbs;
+using GlobalEnums;
 using HutongGames.PlayMaker;
 using Modding;
 using UnityEngine;
@@ -44,8 +45,8 @@ public partial class DeVectMod : Mod, IGlobalSettings<DeVectSettings>, ILocalSet
         EnsureOrbSystem();
 
         ModHooks.BeforeSavegameSaveHook += OnBeforeSavegameSave;
-        ModHooks.TakeDamageHook += OnHeroTakeDamage;
         ModHooks.AfterTakeDamageHook += OnHeroAfterTakeDamage;
+        On.HeroController.TakeDamage += OnHeroTakeDamage;
         On.HeroController.NailParry += OnHeroNailParry;
         On.HeroController.HeroDash += OnHeroDashStarted;
         On.HeroController.Dash += OnHeroDashStepped;
@@ -61,8 +62,8 @@ public partial class DeVectMod : Mod, IGlobalSettings<DeVectSettings>, ILocalSet
     public void Unload()
     {
         ModHooks.BeforeSavegameSaveHook -= OnBeforeSavegameSave;
-        ModHooks.TakeDamageHook -= OnHeroTakeDamage;
         ModHooks.AfterTakeDamageHook -= OnHeroAfterTakeDamage;
+        On.HeroController.TakeDamage -= OnHeroTakeDamage;
         On.HeroController.NailParry -= OnHeroNailParry;
         On.HeroController.HeroDash -= OnHeroDashStarted;
         On.HeroController.Dash -= OnHeroDashStepped;
@@ -135,15 +136,29 @@ public partial class DeVectMod : Mod, IGlobalSettings<DeVectSettings>, ILocalSet
         _orbSystem?.OnHeroUpdate(hero, Time.deltaTime);
     }
 
-    private int OnHeroTakeDamage(ref int hazardType, int damageAmount)
+    private void OnHeroTakeDamage(On.HeroController.orig_TakeDamage orig, HeroController self, GameObject go, CollisionSide damageSide, int damageAmount, int hazardType)
     {
-        if (!_settings.Enabled || _isShuttingDown)
+        if (!_settings.Enabled || _isShuttingDown || self == null || self != HeroController.instance)
         {
-            return damageAmount;
+            orig(self, go, damageSide, damageAmount, hazardType);
+            return;
         }
 
         EnsureOrbSystem();
-        return _orbSystem?.OnHeroTakeDamage(ref hazardType, damageAmount) ?? damageAmount;
+        HeroDamageInterceptionResult interception = _orbSystem?.OnHeroTakeDamage(ref hazardType, damageAmount) ?? HeroDamageInterceptionResult.PassThrough(damageAmount);
+        if (interception.ShouldForceFullHitStateWithoutHealthLoss)
+        {
+            _orbSystem?.MarkPendingZeroHealthLossDamage();
+        }
+
+        try
+        {
+            orig(self, go, damageSide, interception.DamageToPassIntoTakeDamage, hazardType);
+        }
+        finally
+        {
+            _orbSystem?.ClearPendingZeroHealthLossDamage();
+        }
     }
 
     private int OnHeroAfterTakeDamage(int hazardType, int damageAmount)
@@ -153,14 +168,14 @@ public partial class DeVectMod : Mod, IGlobalSettings<DeVectSettings>, ILocalSet
             return damageAmount;
         }
 
-        if (damageAmount <= 0)
+        EnsureOrbSystem();
+        int finalDamageAmount = _orbSystem?.OnHeroAfterTakeDamage(hazardType, damageAmount) ?? damageAmount;
+        if (finalDamageAmount > 0)
         {
-            return damageAmount;
+            _orbSystem?.OnHeroTookDamage(hazardType, finalDamageAmount);
         }
 
-        EnsureOrbSystem();
-        _orbSystem?.OnHeroTookDamage(hazardType, damageAmount);
-        return damageAmount;
+        return finalDamageAmount;
     }
 
     private void OnHeroNailParry(On.HeroController.orig_NailParry orig, HeroController self)
