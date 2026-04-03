@@ -22,6 +22,7 @@ internal sealed class OrbVisualService
     private const float GlassShardLifetime = 0.46f;
     private const float RefractionRingLifetime = 0.38f;
     private const float GlassFlashLifetime = 0.24f;
+    private const float HeroChestEffectBaseYOffset = 0.38f;
     private const int DashCount = 14;
     private static readonly Color DashColor = new(1f, 1f, 1f, 0.55f);
 
@@ -125,6 +126,16 @@ internal sealed class OrbVisualService
         flashRenderer.sortingLayerName = "HUD";
         flashRenderer.sortingOrder = 13;
         _transientVisuals.Add(new TransientVisual(impactFlash, flashRenderer, profile.Lifetime * 0.52f, Vector3.zero, flashRenderer.color, new Vector3(profile.ImpactFlashScale * 1.35f, profile.ImpactFlashScale * 1.35f, 1f)));
+    }
+
+    public Vector3 GetHeroChestEffectPosition(HeroController hero, float extraYOffset = 0f)
+    {
+        if (hero == null || hero.transform == null)
+        {
+            return Vector3.zero;
+        }
+
+        return hero.transform.position + new Vector3(0f, HeroChestEffectBaseYOffset + extraYOffset, 0f);
     }
 
     private static Vector3 GetLightningTopWorldPosition(Vector3 endWorldPosition, float topInsetWorld)

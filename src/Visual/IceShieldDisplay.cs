@@ -5,25 +5,32 @@ namespace DeVect.Visual;
 
 internal sealed class IceShieldDisplay
 {
+    private const int DefaultHudLayer = 27;
+    private const string DefaultHudSortingLayerName = "HUD";
+    private const int DefaultHudSortingOrder = 0;
+    private const float HealthHudStartViewportX = 0.124f;
+    private const float HealthHudUnitViewportSpacing = 0.0295f;
+    private const float HudViewportY = 0.92f;
+    private const float MaskAnchorWorldOffsetX = 0.22f;
+    private const float MaskAnchorWorldOffsetY = -0.01f;
     private const int PetalsPerLayer = IceShieldState.PetalsPerShield;
     private const int LayerCount = IceShieldState.MaxShieldLayers;
-    private const float ChestOffsetY = 0.72f;
-    private const float BaseScale = 0.56f;
+    private const float BaseScale = 0.2f;
     private const float LayerScaleStep = 0.18f;
     private const float PetalRadius = 0.32f;
     private const float PetalRadiusStep = 0.08f;
     private const float CoreBaseScale = 0.48f;
     private const float MistBaseScale = 1.36f;
-    private const float LayerBobAmplitude = 0.045f;
-    private const float LayerSwayAmplitude = 0.032f;
+    private const float LayerBobAmplitude = 0.01f;
+    private const float LayerSwayAmplitude = 0.008f;
     private const float JitterAmplitude = 0.02f;
     private const float JitterFrequency = 2.4f;
-    private const float FacingScaleX = 0.92f;
     private const string SortingLayer = "HUD";
     private const int CoreSortingOrder = 5;
     private const int LayerSortingBase = 6;
     private const int MistSortingOrder = 4;
 
+    private static readonly string[] HealthNameKeywords = { "health", "mask", "blue", "joni", "lifeblood", "hp" };
     private static readonly Color CoreColor = new(0.72f, 0.94f, 1f, 0.5f);
     private static readonly Color MistColor = new(0.5f, 0.83f, 1f, 0.16f);
     private static readonly Color ActivePetalColor = new(0.67f, 0.9f, 1f, 0.42f);
@@ -37,34 +44,34 @@ internal sealed class IceShieldDisplay
 
     private GameObject? _root;
     private Transform? _rootTransform;
-    private Transform? _heroTransform;
     private SpriteRenderer? _coreRenderer;
     private SpriteRenderer? _mistRenderer;
     private SpriteRenderer? _accentRenderer;
     private readonly SpriteRenderer[] _petalRenderers = new SpriteRenderer[LayerCount * PetalsPerLayer];
     private readonly Transform[] _petalTransforms = new Transform[LayerCount * PetalsPerLayer];
+    private HudRenderConfig _currentHudRenderConfig = new(DefaultHudLayer, DefaultHudSortingLayerName, DefaultHudSortingOrder);
     private float _time;
 
     public void Tick(int petalCount)
     {
-        HeroController? hero = HeroController.instance;
-        if (hero == null || hero.transform == null || !hero.gameObject.activeInHierarchy)
+        Camera? hudCamera = GameCameras.instance != null ? GameCameras.instance.hudCamera : null;
+        if (hudCamera == null || !hudCamera.gameObject.activeInHierarchy)
         {
             SetVisible(false);
             return;
         }
 
-        EnsureBuilt(hero.transform);
-        if (_rootTransform == null || _heroTransform == null)
+        EnsureBuilt();
+        if (_rootTransform == null)
         {
             return;
         }
 
         _time += Time.deltaTime;
-        _rootTransform.localPosition = GetAnimatedAnchorOffset();
-        _rootTransform.localRotation = Quaternion.identity;
-        float facing = hero.transform.localScale.x >= 0f ? 1f : -1f;
-        _rootTransform.localScale = new Vector3(BaseScale * FacingScaleX * facing, BaseScale, 1f);
+        _rootTransform.position = GetHudWorldPosition(hudCamera) + GetAnimatedAnchorOffset();
+        _rootTransform.rotation = Quaternion.identity;
+        _rootTransform.localScale = new Vector3(BaseScale, BaseScale, 1f);
+        ApplyHudRenderConfig(GetHudRenderConfig(hudCamera));
 
         bool hasShield = petalCount > 0;
         SetVisible(hasShield);
@@ -89,7 +96,6 @@ internal sealed class IceShieldDisplay
 
         _root = null;
         _rootTransform = null;
-        _heroTransform = null;
         _coreRenderer = null;
         _mistRenderer = null;
         _accentRenderer = null;
@@ -101,21 +107,19 @@ internal sealed class IceShieldDisplay
         }
     }
 
-    private void EnsureBuilt(Transform heroTransform)
+    private void EnsureBuilt()
     {
-        if (_root != null && _heroTransform == heroTransform)
+        if (_root != null)
         {
             return;
         }
 
-        Dispose();
-
-        _heroTransform = heroTransform;
+        DestroyDuplicateDisplays();
         _root = new GameObject("DeVect_IceShieldDisplay");
         _rootTransform = _root.transform;
-        _rootTransform.SetParent(heroTransform, false);
-        _rootTransform.localPosition = new Vector3(0f, ChestOffsetY, 0f);
-        _rootTransform.localRotation = Quaternion.identity;
+        ApplyHudLayer(_root, _currentHudRenderConfig.HudLayer);
+        _rootTransform.position = Vector3.zero;
+        _rootTransform.rotation = Quaternion.identity;
         _rootTransform.localScale = new Vector3(BaseScale, BaseScale, 1f);
 
         GameObject mist = CreateRendererObject("Mist", _rootTransform, CreateMistSprite(), MistColor, MistSortingOrder, new Vector3(MistBaseScale, MistBaseScale * 0.88f, 1f), out SpriteRenderer mistRenderer);
@@ -151,6 +155,8 @@ internal sealed class IceShieldDisplay
                 _petalTransforms[index] = petalTransform;
             }
         }
+
+        ApplyHudRenderConfig(_currentHudRenderConfig);
     }
 
     private static GameObject CreateRendererObject(
@@ -173,6 +179,11 @@ internal sealed class IceShieldDisplay
         renderer.sortingLayerName = SortingLayer;
         renderer.sortingOrder = sortingOrder;
         return obj;
+    }
+
+    private static void ApplyHudLayer(GameObject obj, int hudLayer)
+    {
+        obj.layer = hudLayer;
     }
 
     private void UpdateCore(float shieldFill)
@@ -266,8 +277,224 @@ internal sealed class IceShieldDisplay
     {
         return new Vector3(
             Mathf.Sin(_time * 1.25f) * LayerSwayAmplitude,
-            ChestOffsetY + (Mathf.Sin((_time * 1.75f) + 0.8f) * LayerBobAmplitude),
+            Mathf.Sin((_time * 1.75f) + 0.8f) * LayerBobAmplitude,
             0f);
+    }
+
+    private static Vector3 GetHudWorldPosition(Camera hudCamera)
+    {
+        if (TryGetMaskAnchorWorldPosition(hudCamera, out Vector3 anchorWorldPosition))
+        {
+            return anchorWorldPosition;
+        }
+
+        PlayerData? playerData = PlayerData.instance;
+        int maxHealth = Mathf.Max(5, playerData?.maxHealth ?? 5);
+        int blueHealth = Mathf.Max(0, playerData?.healthBlue ?? 0);
+        float viewportX = HealthHudStartViewportX + ((maxHealth + blueHealth) * HealthHudUnitViewportSpacing);
+        float worldDistance = Mathf.Abs(hudCamera.transform.position.z);
+        Vector3 worldPosition = hudCamera.ViewportToWorldPoint(new Vector3(viewportX, HudViewportY, worldDistance));
+        worldPosition.z = 0f;
+        return worldPosition;
+    }
+
+    private static bool TryGetMaskAnchorWorldPosition(Camera hudCamera, out Vector3 worldPosition)
+    {
+        worldPosition = default;
+
+        Transform hudRoot = hudCamera.transform.parent != null ? hudCamera.transform.parent : hudCamera.transform;
+        if (!TryGetRightmostHudRenderer(hudCamera, hudRoot, requireHealthKeyword: true, out Renderer? maskRenderer) &&
+            !TryGetRightmostHudRenderer(hudCamera, hudRoot, requireHealthKeyword: false, out maskRenderer))
+        {
+            return false;
+        }
+
+        if (maskRenderer == null)
+        {
+            return false;
+        }
+
+        Bounds maskBounds = maskRenderer.bounds;
+        worldPosition = new Vector3(
+            maskBounds.max.x + MaskAnchorWorldOffsetX,
+            maskBounds.center.y + MaskAnchorWorldOffsetY,
+            0f);
+        return true;
+    }
+
+    private HudRenderConfig GetHudRenderConfig(Camera hudCamera)
+    {
+        Transform hudRoot = hudCamera.transform.parent != null ? hudCamera.transform.parent : hudCamera.transform;
+        return TryGetHealthHudRenderConfig(hudCamera, hudRoot, out HudRenderConfig config)
+            ? config
+            : new HudRenderConfig(DefaultHudLayer, DefaultHudSortingLayerName, DefaultHudSortingOrder);
+    }
+
+    private void ApplyHudRenderConfig(HudRenderConfig config)
+    {
+        _currentHudRenderConfig = config;
+
+        if (_root != null)
+        {
+            _root.layer = config.HudLayer;
+        }
+
+        if (_mistRenderer != null)
+        {
+            _mistRenderer.gameObject.layer = config.HudLayer;
+            _mistRenderer.sortingLayerName = config.SortingLayerName;
+            _mistRenderer.sortingOrder = config.SortingOrder - 1;
+        }
+
+        if (_coreRenderer != null)
+        {
+            _coreRenderer.gameObject.layer = config.HudLayer;
+            _coreRenderer.sortingLayerName = config.SortingLayerName;
+            _coreRenderer.sortingOrder = config.SortingOrder;
+        }
+
+        if (_accentRenderer != null)
+        {
+            _accentRenderer.gameObject.layer = config.HudLayer;
+            _accentRenderer.sortingLayerName = config.SortingLayerName;
+            _accentRenderer.sortingOrder = config.SortingOrder + 1;
+        }
+
+        for (int i = 0; i < _petalRenderers.Length; i++)
+        {
+            SpriteRenderer? renderer = _petalRenderers[i];
+            if (renderer == null)
+            {
+                continue;
+            }
+
+            renderer.gameObject.layer = config.HudLayer;
+            renderer.sortingLayerName = config.SortingLayerName;
+            renderer.sortingOrder = config.SortingOrder + 2 + (i / PetalsPerLayer);
+        }
+    }
+
+    private static bool TryGetHealthHudRenderConfig(Camera hudCamera, Transform root, out HudRenderConfig config)
+    {
+        config = new HudRenderConfig(DefaultHudLayer, DefaultHudSortingLayerName, DefaultHudSortingOrder);
+        if (!TryGetRightmostHudRenderer(hudCamera, root, requireHealthKeyword: true, out Renderer? bestRenderer) &&
+            !TryGetRightmostHudRenderer(hudCamera, root, requireHealthKeyword: false, out bestRenderer))
+        {
+            return false;
+        }
+
+        return TryCreateHudRenderConfig(bestRenderer, out config);
+    }
+
+    private static bool TryCreateHudRenderConfig(Renderer? renderer, out HudRenderConfig config)
+    {
+        if (renderer == null)
+        {
+            config = new HudRenderConfig(DefaultHudLayer, DefaultHudSortingLayerName, DefaultHudSortingOrder);
+            return false;
+        }
+
+        string sortingLayerName = renderer.sortingLayerID != 0 ? UnityEngine.SortingLayer.IDToName(renderer.sortingLayerID) : renderer.sortingLayerName;
+        if (string.IsNullOrEmpty(sortingLayerName))
+        {
+            sortingLayerName = DefaultHudSortingLayerName;
+        }
+
+        config = new HudRenderConfig(renderer.gameObject.layer, sortingLayerName, renderer.sortingOrder);
+        return true;
+    }
+
+    private static bool TryGetRightmostHudRenderer(Camera hudCamera, Transform root, bool requireHealthKeyword, out Renderer? bestRenderer)
+    {
+        bestRenderer = null;
+        Renderer[] renderers = root.GetComponentsInChildren<Renderer>(true);
+        bool found = false;
+        float bestRightEdge = float.NegativeInfinity;
+
+        foreach (Renderer renderer in renderers)
+        {
+            if (!IsEligibleHudRenderer(hudCamera, renderer, requireHealthKeyword))
+            {
+                continue;
+            }
+
+            Bounds bounds = renderer.bounds;
+            if (!found || bounds.max.x > bestRightEdge)
+            {
+                bestRenderer = renderer;
+                bestRightEdge = bounds.max.x;
+                found = true;
+            }
+        }
+
+        return found;
+    }
+
+    private static bool IsEligibleHudRenderer(Camera hudCamera, Renderer renderer, bool requireHealthKeyword)
+    {
+        if (renderer == null ||
+            !renderer.gameObject.activeInHierarchy ||
+            renderer.gameObject.layer != DefaultHudLayer)
+        {
+            return false;
+        }
+
+        string sortingLayerName = renderer.sortingLayerID != 0 ? UnityEngine.SortingLayer.IDToName(renderer.sortingLayerID) : renderer.sortingLayerName;
+        if (sortingLayerName != DefaultHudSortingLayerName)
+        {
+            return false;
+        }
+
+        if (renderer is SpriteRenderer spriteRenderer && spriteRenderer.sprite == null)
+        {
+            return false;
+        }
+
+        if (renderer.gameObject.name.StartsWith("DeVect_"))
+        {
+            return false;
+        }
+
+        string objectNameLower = renderer.gameObject.name.ToLowerInvariant();
+        bool matchesHealthKeyword = false;
+        for (int i = 0; i < HealthNameKeywords.Length; i++)
+        {
+            if (objectNameLower.Contains(HealthNameKeywords[i]))
+            {
+                matchesHealthKeyword = true;
+                break;
+            }
+        }
+
+        if (requireHealthKeyword && !matchesHealthKeyword)
+        {
+            return false;
+        }
+
+        Bounds bounds = renderer.bounds;
+        Vector3 viewport = hudCamera.WorldToViewportPoint(bounds.center);
+        if (viewport.z <= 0f || viewport.y < 0.78f || viewport.y > 1.05f || viewport.x < -0.05f || viewport.x > 0.45f)
+        {
+            return false;
+        }
+
+        Vector3 size = bounds.size;
+        return size.x > 0f && size.y > 0f && size.x <= 2.5f && size.y <= 2.5f;
+    }
+
+    private void DestroyDuplicateDisplays()
+    {
+        GameObject[] displays = Object.FindObjectsOfType<GameObject>();
+        for (int i = 0; i < displays.Length; i++)
+        {
+            GameObject display = displays[i];
+            if (display == null || display == _root || display.name != "DeVect_IceShieldDisplay")
+            {
+                continue;
+            }
+
+            Object.Destroy(display);
+        }
     }
 
     private void SetVisible(bool visible)
@@ -276,6 +503,22 @@ internal sealed class IceShieldDisplay
         {
             _root.SetActive(visible);
         }
+    }
+
+    private readonly struct HudRenderConfig
+    {
+        public HudRenderConfig(int hudLayer, string sortingLayerName, int sortingOrder)
+        {
+            HudLayer = hudLayer;
+            SortingLayerName = sortingLayerName;
+            SortingOrder = sortingOrder;
+        }
+
+        public int HudLayer { get; }
+
+        public string SortingLayerName { get; }
+
+        public int SortingOrder { get; }
     }
 
     private static Vector3 GetPetalBaseScale(int layerIndex)
