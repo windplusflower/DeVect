@@ -12,9 +12,9 @@ internal sealed class OrbVisualService
     private const float DashedRingRadius = 0.225f;
     private const float DashScale = 0.086f;
     private const float DashThicknessFactor = 0.32f;
-    private const float PassiveLightningScale = 0.94f;
+    private const float PassiveLightningWorldWidth = 2.51f;
     private const float PassiveLightningLifetime = 0.5f;
-    private const float EvocationLightningScale = 1.68f;
+    private const float EvocationLightningWorldWidth = 4.48f;
     private const float EvocationLightningLifetime = 0.8f;
     private const float VoidImpactBloomLifetime = 0.24f;
     private const float VoidImpactRiftLifetime = 0.42f;
@@ -103,13 +103,14 @@ internal sealed class OrbVisualService
         GameObject lightning = new("DeVect_LightningVisual");
         lightning.transform.position = new Vector3(lightningEnd.x, lightningEnd.y - impactOffset + profile.TargetYOffset, lightningEnd.z);
         lightning.transform.rotation = Quaternion.identity;
-        lightning.transform.localScale = new Vector3(profile.BeamScale, profile.BeamScale, 1f);
 
         SpriteRenderer renderer = lightning.AddComponent<SpriteRenderer>();
         renderer.sprite = CreateLightningSprite(profile, spriteWorldHeight);
         renderer.color = profile.BeamTint;
         renderer.sortingLayerName = "HUD";
         renderer.sortingOrder = 12;
+        float spriteWorldWidth = Mathf.Max(0.01f, renderer.sprite.bounds.size.x);
+        lightning.transform.localScale = new Vector3(profile.BeamWorldWidth / spriteWorldWidth, 1f, 1f);
 
         _transientVisuals.Add(new TransientVisual(lightning, renderer, profile.Lifetime, Vector3.up * profile.DriftVelocity, renderer.color, lightning.transform.localScale));
 
@@ -1274,7 +1275,7 @@ internal sealed class OrbVisualService
 
         public float Lifetime { get; init; }
 
-        public float BeamScale { get; init; }
+        public float BeamWorldWidth { get; init; }
 
         public float DriftVelocity { get; init; }
 
@@ -1352,7 +1353,7 @@ internal sealed class OrbVisualService
             {
                 IsEvocation = false,
                 Lifetime = PassiveLightningLifetime,
-                BeamScale = PassiveLightningScale,
+                BeamWorldWidth = PassiveLightningWorldWidth,
                 DriftVelocity = 1.2f,
                 MinimumBoltWorldHeight = 3.15f,
                 TopInsetWorld = 0.55f,
@@ -1397,7 +1398,7 @@ internal sealed class OrbVisualService
             {
                 IsEvocation = true,
                 Lifetime = EvocationLightningLifetime,
-                BeamScale = EvocationLightningScale,
+                BeamWorldWidth = EvocationLightningWorldWidth,
                 DriftVelocity = 1.55f,
                 MinimumBoltWorldHeight = 4.2f,
                 TopInsetWorld = 0.7f,
