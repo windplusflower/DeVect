@@ -8,10 +8,9 @@ internal sealed class IceShieldDisplay
     private const int DefaultHudLayer = 27;
     private const string DefaultHudSortingLayerName = "HUD";
     private const int DefaultHudSortingOrder = 0;
-    private const float HealthHudStartViewportX = 0.124f;
-    private const float HealthHudUnitViewportSpacing = 0.0295f;
-    private const float HudViewportY = 0.92f;
-    private const float MaskAnchorWorldOffsetX = 0.32f;
+    private const float FixedHudViewportX = 0.2715f;
+    private const float FixedHudViewportY = 0.92f;
+    private const float MaskAnchorWorldOffsetX = 0.24f;
     private const float MaskAnchorWorldOffsetY = -0.06f;
     private const float ShieldGroupSpacing = 0.56f;
     private const float ShieldCoreScale = 0.16f;
@@ -19,7 +18,6 @@ internal sealed class IceShieldDisplay
     private const int PetalsPerLayer = IceShieldState.PetalsPerShield;
     private const int LayerCount = IceShieldState.MaxShieldLayers;
     private const int MaxPetals = IceShieldState.MaxPetals;
-    private static readonly string[] HealthNameKeywords = { "health", "mask", "blue", "joni", "lifeblood", "hp" };
     private static readonly Color ActivePetalColor = new(0.78f, 0.94f, 1f, 0.98f);
     private static readonly Color InactivePetalColor = new(0.42f, 0.56f, 0.68f, 0.24f);
     private static readonly Vector3[] PetalOffsets =
@@ -85,7 +83,7 @@ internal sealed class IceShieldDisplay
         _root.transform.position = worldPosition;
         _root.transform.rotation = Quaternion.identity;
         _root.transform.localScale = Vector3.one;
-        ApplyHudRenderConfig(GetHudRenderConfig(hudCamera));
+        ApplyHudRenderConfig(DefaultHudRenderConfig);
 
         bool hasShield = petalCount > 0;
         SetVisible(hasShield);
@@ -196,48 +194,12 @@ internal sealed class IceShieldDisplay
 
     private static Vector3 GetHudWorldPosition(Camera hudCamera)
     {
-        if (TryGetMaskAnchorWorldPosition(hudCamera, out Vector3 anchorWorldPosition))
-        {
-            return anchorWorldPosition;
-        }
-
-        PlayerData? playerData = PlayerData.instance;
-        int maxHealth = Mathf.Max(5, playerData?.maxHealth ?? 5);
-        int blueHealth = Mathf.Max(0, playerData?.healthBlue ?? 0);
-        float viewportX = HealthHudStartViewportX + ((maxHealth + blueHealth) * HealthHudUnitViewportSpacing);
+        float viewportX = FixedHudViewportX;
         float worldDistance = Mathf.Abs(hudCamera.transform.position.z);
-        Vector3 worldPosition = hudCamera.ViewportToWorldPoint(new Vector3(viewportX, HudViewportY, worldDistance));
+        Vector3 worldPosition = hudCamera.ViewportToWorldPoint(new Vector3(viewportX, FixedHudViewportY, worldDistance));
         worldPosition += MaskAnchorWorldOffset;
         worldPosition.z = 0f;
         return worldPosition;
-    }
-
-    private static bool TryGetMaskAnchorWorldPosition(Camera hudCamera, out Vector3 worldPosition)
-    {
-        worldPosition = default;
-
-        Transform? hudRoot = hudCamera.transform.parent != null ? hudCamera.transform.parent : hudCamera.transform;
-        if (TryGetRightmostHudRenderer(hudCamera, hudRoot, requireHealthKeyword: true, out Renderer? maskRenderer) ||
-            TryGetRightmostHudRenderer(hudCamera, hudRoot, requireHealthKeyword: false, out maskRenderer))
-        {
-            if (maskRenderer == null)
-            {
-                return false;
-            }
-
-            Bounds maskBounds = maskRenderer.bounds;
-            worldPosition = new Vector3(maskBounds.max.x, maskBounds.center.y, 0f) + MaskAnchorWorldOffset;
-            worldPosition.z = 0f;
-            return true;
-        }
-
-        return false;
-    }
-
-    private HudRenderConfig GetHudRenderConfig(Camera hudCamera)
-    {
-        Transform? hudRoot = hudCamera.transform.parent != null ? hudCamera.transform.parent : hudCamera.transform;
-        return TryGetHealthHudRenderConfig(hudCamera, hudRoot, out HudRenderConfig config) ? config : DefaultHudRenderConfig;
     }
 
     private void ApplyHudRenderConfig(HudRenderConfig config)
@@ -274,114 +236,6 @@ internal sealed class IceShieldDisplay
             renderer.sortingLayerName = config.SortingLayerName;
             renderer.sortingOrder = config.SortingOrder;
         }
-    }
-
-    private static bool TryGetHealthHudRenderConfig(Camera hudCamera, Transform root, out HudRenderConfig config)
-    {
-        config = DefaultHudRenderConfig;
-        Renderer? bestRenderer;
-        if (!TryGetRightmostHudRenderer(hudCamera, root, requireHealthKeyword: true, out bestRenderer) &&
-            !TryGetRightmostHudRenderer(hudCamera, root, requireHealthKeyword: false, out bestRenderer))
-        {
-            return false;
-        }
-
-        return TryCreateHudRenderConfig(bestRenderer, out config);
-    }
-
-    private static bool TryCreateHudRenderConfig(Renderer? renderer, out HudRenderConfig config)
-    {
-        if (renderer == null)
-        {
-            config = DefaultHudRenderConfig;
-            return false;
-        }
-
-        string sortingLayerName = renderer.sortingLayerID != 0 ? SortingLayer.IDToName(renderer.sortingLayerID) : renderer.sortingLayerName;
-        if (string.IsNullOrEmpty(sortingLayerName))
-        {
-            sortingLayerName = DefaultHudSortingLayerName;
-        }
-
-        config = new HudRenderConfig(renderer.gameObject.layer, sortingLayerName, renderer.sortingOrder);
-        return true;
-    }
-
-    private static bool TryGetRightmostHudRenderer(Camera hudCamera, Transform root, bool requireHealthKeyword, out Renderer? bestRenderer)
-    {
-        bestRenderer = null;
-        Renderer[] renderers = root.GetComponentsInChildren<Renderer>(true);
-        bool found = false;
-        float bestRightEdge = float.NegativeInfinity;
-
-        foreach (Renderer renderer in renderers)
-        {
-            if (!IsEligibleHudRenderer(hudCamera, renderer, requireHealthKeyword))
-            {
-                continue;
-            }
-
-            Bounds bounds = renderer.bounds;
-            if (!found || bounds.max.x > bestRightEdge)
-            {
-                bestRenderer = renderer;
-                bestRightEdge = bounds.max.x;
-                found = true;
-            }
-        }
-
-        return found;
-    }
-
-    private static bool IsEligibleHudRenderer(Camera hudCamera, Renderer renderer, bool requireHealthKeyword)
-    {
-        if (renderer == null ||
-            !renderer.gameObject.activeInHierarchy)
-        {
-            return false;
-        }
-
-        if (renderer is SpriteRenderer spriteRenderer && spriteRenderer.sprite == null)
-        {
-            return false;
-        }
-
-        string objectName = renderer.gameObject.name;
-        if (objectName.StartsWith("DeVect_"))
-        {
-            return false;
-        }
-
-        string objectNameLower = objectName.ToLowerInvariant();
-        bool matchesHealthKeyword = false;
-        for (int i = 0; i < HealthNameKeywords.Length; i++)
-        {
-            if (objectNameLower.Contains(HealthNameKeywords[i]))
-            {
-                matchesHealthKeyword = true;
-                break;
-            }
-        }
-
-        if (requireHealthKeyword && !matchesHealthKeyword)
-        {
-            return false;
-        }
-
-        Bounds bounds = renderer.bounds;
-        Vector3 viewport = hudCamera.WorldToViewportPoint(bounds.center);
-        if (viewport.z <= 0f || viewport.y < 0.78f || viewport.y > 1.05f || viewport.x < -0.05f || viewport.x > 0.45f)
-        {
-            return false;
-        }
-
-        Vector3 size = bounds.size;
-        if (size.x <= 0f || size.y <= 0f || size.x > 2.5f || size.y > 2.5f)
-        {
-            return false;
-        }
-
-        return true;
     }
 
     private readonly struct HudRenderConfig
