@@ -267,38 +267,53 @@ internal sealed class OrbVisualService
     public void SpawnIcePetalEffect(Vector3 worldPosition, int petalCount)
     {
         bool isFullBloom = petalCount >= 4;
-        float lifetime = isFullBloom ? 1.05f : 0.72f;
+        float lifetime = isFullBloom ? 1.15f : 0.82f;
 
-        GameObject bloom = new(isFullBloom ? "DeVect_IceBloom" : "DeVect_IcePetalBloom");
+        GameObject mist = new(isFullBloom ? "DeVect_IceLotusMist" : "DeVect_IceMist");
+        mist.transform.position = worldPosition + new Vector3(0f, 0.02f, 0f);
+        mist.transform.rotation = Quaternion.identity;
+        mist.transform.localScale = new Vector3(isFullBloom ? 1.08f : 0.78f, isFullBloom ? 0.92f : 0.68f, 1f);
+
+        SpriteRenderer mistRenderer = mist.AddComponent<SpriteRenderer>();
+        mistRenderer.sprite = CreateIceBloomSprite();
+        mistRenderer.color = isFullBloom
+            ? new Color(0.54f, 0.84f, 1f, 0.2f)
+            : new Color(0.52f, 0.8f, 1f, 0.14f);
+        mistRenderer.sortingLayerName = "HUD";
+        mistRenderer.sortingOrder = 15;
+        _transientVisuals.Add(new TransientVisual(mist, mistRenderer, lifetime, Vector3.up * (isFullBloom ? 0.12f : 0.08f), mistRenderer.color, new Vector3(isFullBloom ? 1.34f : 1.12f, isFullBloom ? 1.12f : 0.92f, 1f)));
+
+        GameObject bloom = new(isFullBloom ? "DeVect_IceLotusBloom" : "DeVect_IcePetalBloom");
         bloom.transform.position = worldPosition;
         bloom.transform.rotation = Quaternion.identity;
-        bloom.transform.localScale = new Vector3(isFullBloom ? 0.78f : 0.48f, isFullBloom ? 0.78f : 0.48f, 1f);
+        bloom.transform.localScale = new Vector3(isFullBloom ? 0.92f : 0.62f, isFullBloom ? 0.92f : 0.62f, 1f);
 
         SpriteRenderer bloomRenderer = bloom.AddComponent<SpriteRenderer>();
         bloomRenderer.sprite = CreateIceBloomSprite();
         bloomRenderer.color = isFullBloom
-            ? new Color(0.88f, 0.97f, 1f, 0.92f)
-            : new Color(0.86f, 0.96f, 1f, 0.7f);
+            ? new Color(0.74f, 0.92f, 1f, 0.42f)
+            : new Color(0.7f, 0.89f, 1f, 0.3f);
         bloomRenderer.sortingLayerName = "HUD";
         bloomRenderer.sortingOrder = 16;
         _transientVisuals.Add(new TransientVisual(bloom, bloomRenderer, lifetime, Vector3.up * (isFullBloom ? 0.18f : 0.11f), bloomRenderer.color, bloom.transform.localScale));
 
-        int visualPetalCount = isFullBloom ? 4 : Mathf.Max(1, petalCount);
+        int visualPetalCount = isFullBloom ? 6 : Mathf.Max(3, petalCount + 2);
         for (int i = 0; i < visualPetalCount; i++)
         {
-            float angle = (Mathf.PI * 2f * i) / visualPetalCount;
+            float angle = ((Mathf.PI * 2f * i) / visualPetalCount) + (Mathf.PI / visualPetalCount);
             Vector3 outward = new(Mathf.Cos(angle), Mathf.Sin(angle), 0f);
 
-            GameObject petal = new($"DeVect_IcePetal_{i}");
-            petal.transform.position = worldPosition + (outward * (isFullBloom ? 0.18f : 0.08f));
+            float ringRadius = isFullBloom ? 0.19f : 0.11f;
+            GameObject petal = new($"DeVect_IceLotusPetal_{i}");
+            petal.transform.position = worldPosition + (outward * ringRadius);
             petal.transform.rotation = Quaternion.Euler(0f, 0f, (angle * Mathf.Rad2Deg) - 90f);
-            petal.transform.localScale = new Vector3(isFullBloom ? 0.5f : 0.36f, isFullBloom ? 0.5f : 0.36f, 1f);
+            petal.transform.localScale = new Vector3(isFullBloom ? 0.68f : 0.48f, isFullBloom ? 0.78f : 0.56f, 1f);
 
             SpriteRenderer petalRenderer = petal.AddComponent<SpriteRenderer>();
             petalRenderer.sprite = CreateIcePetalSprite();
             petalRenderer.color = isFullBloom
-                ? new Color(0.88f, 0.97f, 1f, 1f)
-                : new Color(0.84f, 0.95f, 1f, 0.96f);
+                ? new Color(0.74f, 0.93f, 1f, 0.58f)
+                : new Color(0.7f, 0.9f, 1f, 0.42f);
             petalRenderer.sortingLayerName = "HUD";
             petalRenderer.sortingOrder = 17;
 
@@ -306,33 +321,31 @@ internal sealed class OrbVisualService
             {
                 UseArcMotion = true,
                 StartPosition = petal.transform.position,
-                EndPosition = worldPosition + (outward * (isFullBloom ? 0.9f : 0.52f)) + new Vector3(0f, isFullBloom ? 0.44f : 0.24f, 0f),
-                ArcHeight = isFullBloom ? 0.42f : 0.2f
+                EndPosition = worldPosition + (outward * (isFullBloom ? 1.02f : 0.64f)) + new Vector3(0f, isFullBloom ? 0.36f : 0.2f, 0f),
+                ArcHeight = isFullBloom ? 0.34f : 0.16f
             };
             _transientVisuals.Add(visual);
         }
 
-        if (!isFullBloom)
+        int crystalCount = isFullBloom ? 8 : 4;
+        for (int i = 0; i < crystalCount; i++)
         {
-            return;
-        }
-
-        for (int i = 0; i < 6; i++)
-        {
-            float angle = i * 60f * Mathf.Deg2Rad;
+            float angle = i * (360f / crystalCount) * Mathf.Deg2Rad;
             Vector3 outward = new(Mathf.Cos(angle), Mathf.Sin(angle), 0f);
 
-            GameObject crystal = new($"DeVect_IceCrystal_{i}");
-            crystal.transform.position = worldPosition + (outward * 0.16f);
-            crystal.transform.rotation = Quaternion.Euler(0f, 0f, (i * 60f) + 15f);
-            crystal.transform.localScale = new Vector3(0.2f, 0.2f, 1f);
+            GameObject crystal = new($"DeVect_IceLotusCrystal_{i}");
+            crystal.transform.position = worldPosition + (outward * (isFullBloom ? 0.2f : 0.1f));
+            crystal.transform.rotation = Quaternion.Euler(0f, 0f, (i * (360f / crystalCount)) + 15f);
+            crystal.transform.localScale = new Vector3(isFullBloom ? 0.24f : 0.16f, isFullBloom ? 0.24f : 0.16f, 1f);
 
             SpriteRenderer crystalRenderer = crystal.AddComponent<SpriteRenderer>();
             crystalRenderer.sprite = CreateIceCrystalSprite();
-            crystalRenderer.color = new Color(0.94f, 0.99f, 1f, 0.98f);
+            crystalRenderer.color = isFullBloom
+                ? new Color(0.9f, 0.98f, 1f, 0.44f)
+                : new Color(0.82f, 0.95f, 1f, 0.28f);
             crystalRenderer.sortingLayerName = "HUD";
             crystalRenderer.sortingOrder = 18;
-            _transientVisuals.Add(new TransientVisual(crystal, crystalRenderer, lifetime * 0.76f, outward * 0.9f, crystalRenderer.color, crystal.transform.localScale));
+            _transientVisuals.Add(new TransientVisual(crystal, crystalRenderer, lifetime * 0.72f, outward * (isFullBloom ? 0.72f : 0.46f), crystalRenderer.color, crystal.transform.localScale));
         }
     }
 

@@ -26,12 +26,12 @@ internal sealed class IceOrbDefinition : IOrbDefinition
 
     public void OnPassive(OrbTriggerContext context, OrbInstance instance)
     {
-        ApplyShieldGain(context, 1, 1, 1.1f, "passive");
+        ApplyShieldGain(context, 1, 1, 0.72f, "passive");
     }
 
     public void OnEvocation(OrbTriggerContext context, OrbInstance instance)
     {
-        ApplyShieldGain(context, 3, IceShieldState.PetalsPerShield, 1.15f, "evocation");
+        ApplyShieldGain(context, 3, IceShieldState.PetalsPerShield, 0.74f, "evocation");
     }
 
     private void ApplyShieldGain(OrbTriggerContext context, int petalsToAdd, int effectPetalCount, float effectYOffset, string sourceLabel)
