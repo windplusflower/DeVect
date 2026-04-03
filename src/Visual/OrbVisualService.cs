@@ -94,19 +94,19 @@ internal sealed class OrbVisualService
     {
         LightningVisualProfile profile = isEvocation ? LightningVisualProfile.Evocation() : LightningVisualProfile.Passive();
         Vector3 lightningEnd = GetLightningEndWorldPosition(worldPosition);
-        Vector3 lightningStart = GetLightningStartWorldPosition(lightningEnd);
-        float beamHeight = Mathf.Max(Mathf.Abs(lightningStart.y - lightningEnd.y), LightningBaseWorldHeight * profile.BeamScale);
-        float normalizedBoltHeight = Mathf.Max(0.01f, 1f - profile.ImpactHeightNormalized);
-        float verticalScale = beamHeight / (LightningBaseWorldHeight * normalizedBoltHeight);
-        float impactOffset = LightningBaseWorldHeight * profile.ImpactHeightNormalized * verticalScale;
+        Vector3 lightningTop = GetLightningTopWorldPosition(lightningEnd, profile.TopInsetWorld);
+        float boltWorldHeight = Mathf.Max(Mathf.Abs(lightningTop.y - lightningEnd.y), profile.MinimumBoltWorldHeight);
+        float normalizedBoltHeight = Mathf.Max(0.01f, profile.StartHeightNormalized - profile.ImpactHeightNormalized);
+        float spriteWorldHeight = boltWorldHeight / normalizedBoltHeight;
+        float impactOffset = spriteWorldHeight * profile.ImpactHeightNormalized;
 
         GameObject lightning = new("DeVect_LightningVisual");
-        lightning.transform.position = new Vector3(lightningEnd.x, lightningEnd.y - impactOffset, lightningEnd.z);
+        lightning.transform.position = new Vector3(lightningEnd.x, lightningEnd.y - impactOffset + profile.TargetYOffset, lightningEnd.z);
         lightning.transform.rotation = Quaternion.identity;
-        lightning.transform.localScale = new Vector3(profile.BeamScale, verticalScale, 1f);
+        lightning.transform.localScale = new Vector3(profile.BeamScale, profile.BeamScale, 1f);
 
         SpriteRenderer renderer = lightning.AddComponent<SpriteRenderer>();
-        renderer.sprite = CreateLightningSprite(profile);
+        renderer.sprite = CreateLightningSprite(profile, spriteWorldHeight);
         renderer.color = profile.BeamTint;
         renderer.sortingLayerName = "HUD";
         renderer.sortingOrder = 12;
@@ -114,7 +114,7 @@ internal sealed class OrbVisualService
         _transientVisuals.Add(new TransientVisual(lightning, renderer, profile.Lifetime, Vector3.up * profile.DriftVelocity, renderer.color, lightning.transform.localScale));
 
         GameObject impactFlash = new("DeVect_LightningImpactFlash");
-        impactFlash.transform.position = lightningEnd + new Vector3(0f, profile.ImpactYOffset, 0f);
+        impactFlash.transform.position = lightningEnd + new Vector3(0f, profile.TargetYOffset + profile.ImpactYOffset, 0f);
         impactFlash.transform.rotation = Quaternion.identity;
         impactFlash.transform.localScale = new Vector3(profile.ImpactFlashScale, profile.ImpactFlashScale, 1f);
 
@@ -126,18 +126,19 @@ internal sealed class OrbVisualService
         _transientVisuals.Add(new TransientVisual(impactFlash, flashRenderer, profile.Lifetime * 0.52f, Vector3.zero, flashRenderer.color, new Vector3(profile.ImpactFlashScale * 1.35f, profile.ImpactFlashScale * 1.35f, 1f)));
     }
 
-    private static Vector3 GetLightningStartWorldPosition(Vector3 endWorldPosition)
+    private static Vector3 GetLightningTopWorldPosition(Vector3 endWorldPosition, float topInsetWorld)
     {
         Camera? mainCamera = GameCameras.instance != null ? GameCameras.instance.mainCamera : null;
         if (mainCamera == null || !mainCamera.gameObject.activeInHierarchy)
         {
-            return endWorldPosition + new Vector3(0f, LightningBaseWorldHeight, 0f);
+            return endWorldPosition + new Vector3(0f, LightningBaseWorldHeight + topInsetWorld, 0f);
         }
 
         float cameraDistance = Mathf.Abs(endWorldPosition.z - mainCamera.transform.position.z);
         Vector3 targetViewportPosition = mainCamera.WorldToViewportPoint(endWorldPosition);
         float viewportX = Mathf.Clamp01(targetViewportPosition.x);
-        Vector3 topWorldPosition = mainCamera.ViewportToWorldPoint(new Vector3(viewportX, 1f, cameraDistance));
+        float viewportY = Mathf.Clamp01(1f - (topInsetWorld / Mathf.Max(0.01f, mainCamera.orthographicSize * 2f)));
+        Vector3 topWorldPosition = mainCamera.ViewportToWorldPoint(new Vector3(viewportX, viewportY, cameraDistance));
         topWorldPosition.z = endWorldPosition.z;
         return topWorldPosition;
     }
@@ -1054,10 +1055,11 @@ internal sealed class OrbVisualService
         return _iceCrystalSprite;
     }
 
-    private static Sprite CreateLightningSprite(LightningVisualProfile profile)
+    private static Sprite CreateLightningSprite(LightningVisualProfile profile, float spriteWorldHeight)
     {
-        Texture2D texture = CreateLightningTexture(profile);
-        Sprite sprite = Sprite.Create(texture, new Rect(0f, 0f, texture.width, texture.height), new Vector2(0.5f, 0f), 48f);
+        Texture2D texture = CreateLightningTexture(profile, spriteWorldHeight);
+        float pivotY = Mathf.Clamp01(profile.ImpactHeightNormalized);
+        Sprite sprite = Sprite.Create(texture, new Rect(0f, 0f, texture.width, texture.height), new Vector2(0.5f, pivotY), LightningPixelsPerUnit);
         sprite.name = profile.IsEvocation ? "DeVect_LightningSprite_Evocation" : "DeVect_LightningSprite_Passive";
         return sprite;
     }
@@ -1108,10 +1110,11 @@ internal sealed class OrbVisualService
         return _lightningImpactSprite;
     }
 
-    private static Texture2D CreateLightningTexture(LightningVisualProfile profile)
+    private static Texture2D CreateLightningTexture(LightningVisualProfile profile, float spriteWorldHeight)
     {
-        const int size = 128;
-        Texture2D texture = new(size, size, TextureFormat.RGBA32, false)
+        int width = Mathf.RoundToInt(LightningTextureSize);
+        int height = Mathf.Max(Mathf.RoundToInt(spriteWorldHeight * LightningPixelsPerUnit), Mathf.RoundToInt(LightningTextureSize));
+        Texture2D texture = new(width, height, TextureFormat.RGBA32, false)
         {
             filterMode = FilterMode.Bilinear,
             wrapMode = TextureWrapMode.Clamp,
@@ -1119,7 +1122,7 @@ internal sealed class OrbVisualService
         };
 
         Color clear = new(0f, 0f, 0f, 0f);
-        Color[] clearPixels = new Color[size * size];
+        Color[] clearPixels = new Color[width * height];
         for (int i = 0; i < clearPixels.Length; i++)
         {
             clearPixels[i] = clear;
@@ -1127,10 +1130,10 @@ internal sealed class OrbVisualService
 
         texture.SetPixels(clearPixels);
 
-        float startX = (size * 0.5f) + Random.Range(-profile.StartOffsetPixels, profile.StartOffsetPixels);
-        Vector2 start = new(startX, size * profile.StartHeightNormalized);
-        Vector2 end = new((size * 0.5f) + Random.Range(-profile.EndOffsetPixels, profile.EndOffsetPixels), size * profile.ImpactHeightNormalized);
-        Vector2[] mainPath = BuildLightningPath(Random.Range(1, 5000), start, end, size * profile.MainJitterFactor, profile.MainSegmentCount);
+        float startX = (width * 0.5f) + Random.Range(-profile.StartOffsetPixels, profile.StartOffsetPixels);
+        Vector2 start = new(startX, height * profile.StartHeightNormalized);
+        Vector2 end = new((width * 0.5f) + Random.Range(-profile.EndOffsetPixels, profile.EndOffsetPixels), height * profile.ImpactHeightNormalized);
+        Vector2[] mainPath = BuildLightningPath(Random.Range(1, 5000), start, end, width * profile.MainJitterFactor, profile.MainSegmentCount);
         DrawLightningBolt(texture, mainPath, profile.CoreColor, profile.GlowColor, profile.CoreRadius, profile.GlowRadius);
 
         int minBranchIndex = Mathf.Max(2, Mathf.FloorToInt(mainPath.Length * 0.28f));
@@ -1145,7 +1148,7 @@ internal sealed class OrbVisualService
             }
 
             float angle = baseAngle + Random.Range(-22f, 22f);
-            float length = size * Random.Range(profile.BranchLengthMin, profile.BranchLengthMax);
+            float length = width * Random.Range(profile.BranchLengthMin, profile.BranchLengthMax);
             DrawLightningBranch(texture, mainPath[pointIndex], angle, length, Random.Range(1, 5000), profile.BranchCoreColor, profile.BranchGlowColor, profile.BranchCoreRadius, profile.BranchGlowRadius);
         }
 
@@ -1275,6 +1278,12 @@ internal sealed class OrbVisualService
 
         public float DriftVelocity { get; init; }
 
+        public float MinimumBoltWorldHeight { get; init; }
+
+        public float TopInsetWorld { get; init; }
+
+        public float TargetYOffset { get; init; }
+
         public float StartHeightNormalized { get; init; }
 
         public float ImpactHeightNormalized { get; init; }
@@ -1345,8 +1354,11 @@ internal sealed class OrbVisualService
                 Lifetime = PassiveLightningLifetime,
                 BeamScale = PassiveLightningScale,
                 DriftVelocity = 1.2f,
+                MinimumBoltWorldHeight = 3.15f,
+                TopInsetWorld = 0.55f,
+                TargetYOffset = -0.24f,
                 StartHeightNormalized = 0.92f,
-                ImpactHeightNormalized = 0.07f,
+                ImpactHeightNormalized = 0.03f,
                 StartOffsetPixels = 16f,
                 EndOffsetPixels = 3f,
                 BranchCount = Random.Range(3, 5),
@@ -1387,8 +1399,11 @@ internal sealed class OrbVisualService
                 Lifetime = EvocationLightningLifetime,
                 BeamScale = EvocationLightningScale,
                 DriftVelocity = 1.55f,
+                MinimumBoltWorldHeight = 4.2f,
+                TopInsetWorld = 0.7f,
+                TargetYOffset = -0.3f,
                 StartHeightNormalized = 0.96f,
-                ImpactHeightNormalized = 0.06f,
+                ImpactHeightNormalized = 0.025f,
                 StartOffsetPixels = 8f,
                 EndOffsetPixels = 2f,
                 BranchCount = Random.Range(5, 7),
