@@ -8,11 +8,10 @@ internal sealed class IceShieldDisplay
     private const int DefaultHudLayer = 27;
     private const string DefaultHudSortingLayerName = "HUD";
     private const int DefaultHudSortingOrder = 0;
-    private const float HealthHudStartViewportX = 0.124f;
-    private const float HealthHudUnitViewportSpacing = 0.0295f;
-    private const float HudViewportY = 0.92f;
-    private const float MaskAnchorWorldOffsetX = 0.22f;
-    private const float MaskAnchorWorldOffsetY = -0.01f;
+    private const float DefaultAnchorViewportX = 0.18f;
+    private const float DefaultAnchorViewportY = 0.86f;
+    private const float LeftHudAnchorViewportOffsetX = 0.11f;
+    private const float LeftHudAnchorViewportOffsetY = -0.02f;
     private const int PetalsPerLayer = IceShieldState.PetalsPerShield;
     private const int LayerCount = IceShieldState.MaxShieldLayers;
     private const float BaseScale = 0.2f;
@@ -29,8 +28,14 @@ internal sealed class IceShieldDisplay
     private const int CoreSortingOrder = 5;
     private const int LayerSortingBase = 6;
     private const int MistSortingOrder = 4;
+    private const float LeftHudAnchorMinViewportX = -0.02f;
+    private const float LeftHudAnchorMaxViewportX = 0.12f;
+    private const float LeftHudAnchorMinViewportY = 0.76f;
+    private const float LeftHudAnchorMaxViewportY = 1.05f;
+    private const float LeftHudMinimumArea = 0.03f;
 
     private static readonly string[] HealthNameKeywords = { "health", "mask", "blue", "joni", "lifeblood", "hp" };
+    private static readonly string[] LeftHudNameKeywords = { "soul", "orb", "vessel", "face", "health", "mask", "ui" };
     private static readonly Color CoreColor = new(0.72f, 0.94f, 1f, 0.5f);
     private static readonly Color MistColor = new(0.5f, 0.83f, 1f, 0.16f);
     private static readonly Color ActivePetalColor = new(0.67f, 0.9f, 1f, 0.42f);
@@ -283,42 +288,46 @@ internal sealed class IceShieldDisplay
 
     private static Vector3 GetHudWorldPosition(Camera hudCamera)
     {
-        if (TryGetMaskAnchorWorldPosition(hudCamera, out Vector3 anchorWorldPosition))
+        if (TryGetLeftHudAnchorWorldPosition(hudCamera, out Vector3 anchorWorldPosition))
         {
             return anchorWorldPosition;
         }
 
-        PlayerData? playerData = PlayerData.instance;
-        int maxHealth = Mathf.Max(5, playerData?.maxHealth ?? 5);
-        int blueHealth = Mathf.Max(0, playerData?.healthBlue ?? 0);
-        float viewportX = HealthHudStartViewportX + ((maxHealth + blueHealth) * HealthHudUnitViewportSpacing);
+        return GetDefaultHudWorldPosition(hudCamera);
+    }
+
+    private static Vector3 GetDefaultHudWorldPosition(Camera hudCamera)
+    {
         float worldDistance = Mathf.Abs(hudCamera.transform.position.z);
-        Vector3 worldPosition = hudCamera.ViewportToWorldPoint(new Vector3(viewportX, HudViewportY, worldDistance));
+        Vector3 worldPosition = hudCamera.ViewportToWorldPoint(new Vector3(DefaultAnchorViewportX, DefaultAnchorViewportY, worldDistance));
         worldPosition.z = 0f;
         return worldPosition;
     }
 
-    private static bool TryGetMaskAnchorWorldPosition(Camera hudCamera, out Vector3 worldPosition)
+    private static bool TryGetLeftHudAnchorWorldPosition(Camera hudCamera, out Vector3 worldPosition)
     {
         worldPosition = default;
 
         Transform hudRoot = hudCamera.transform.parent != null ? hudCamera.transform.parent : hudCamera.transform;
-        if (!TryGetRightmostHudRenderer(hudCamera, hudRoot, requireHealthKeyword: true, out Renderer? maskRenderer) &&
-            !TryGetRightmostHudRenderer(hudCamera, hudRoot, requireHealthKeyword: false, out maskRenderer))
+        if (!TryGetLeftHudAnchorRenderer(hudCamera, hudRoot, requireNameKeyword: true, out Renderer? anchorRenderer) &&
+            !TryGetLeftHudAnchorRenderer(hudCamera, hudRoot, requireNameKeyword: false, out anchorRenderer))
         {
             return false;
         }
 
-        if (maskRenderer == null)
+        if (anchorRenderer == null)
         {
             return false;
         }
 
-        Bounds maskBounds = maskRenderer.bounds;
-        worldPosition = new Vector3(
-            maskBounds.max.x + MaskAnchorWorldOffsetX,
-            maskBounds.center.y + MaskAnchorWorldOffsetY,
-            0f);
+        Bounds anchorBounds = anchorRenderer.bounds;
+        Vector3 anchorViewport = hudCamera.WorldToViewportPoint(anchorBounds.center);
+        float worldDistance = Mathf.Abs(hudCamera.transform.position.z);
+        worldPosition = hudCamera.ViewportToWorldPoint(new Vector3(
+            Mathf.Clamp01(anchorViewport.x + LeftHudAnchorViewportOffsetX),
+            Mathf.Clamp01(anchorViewport.y + LeftHudAnchorViewportOffsetY),
+            worldDistance));
+        worldPosition.z = 0f;
         return true;
     }
 
@@ -384,6 +393,38 @@ internal sealed class IceShieldDisplay
         }
 
         return TryCreateHudRenderConfig(bestRenderer, out config);
+    }
+
+    private static bool TryGetLeftHudAnchorRenderer(Camera hudCamera, Transform root, bool requireNameKeyword, out Renderer? bestRenderer)
+    {
+        bestRenderer = null;
+        Renderer[] renderers = root.GetComponentsInChildren<Renderer>(true);
+        bool found = false;
+        float bestScore = float.NegativeInfinity;
+
+        foreach (Renderer renderer in renderers)
+        {
+            if (!IsEligibleLeftHudAnchorRenderer(hudCamera, renderer, requireNameKeyword))
+            {
+                continue;
+            }
+
+            Bounds bounds = renderer.bounds;
+            Vector3 viewport = hudCamera.WorldToViewportPoint(bounds.center);
+            float area = bounds.size.x * bounds.size.y;
+            float score =
+                (area * 10f) -
+                Mathf.Abs(viewport.x - 0.05f) -
+                (Mathf.Abs(viewport.y - 0.88f) * 0.5f);
+            if (!found || score > bestScore)
+            {
+                bestRenderer = renderer;
+                bestScore = score;
+                found = true;
+            }
+        }
+
+        return found;
     }
 
     private static bool TryCreateHudRenderConfig(Renderer? renderer, out HudRenderConfig config)
@@ -480,6 +521,65 @@ internal sealed class IceShieldDisplay
 
         Vector3 size = bounds.size;
         return size.x > 0f && size.y > 0f && size.x <= 2.5f && size.y <= 2.5f;
+    }
+
+    private static bool IsEligibleLeftHudAnchorRenderer(Camera hudCamera, Renderer renderer, bool requireNameKeyword)
+    {
+        if (renderer == null ||
+            !renderer.gameObject.activeInHierarchy ||
+            renderer.gameObject.layer != DefaultHudLayer)
+        {
+            return false;
+        }
+
+        string sortingLayerName = renderer.sortingLayerID != 0 ? UnityEngine.SortingLayer.IDToName(renderer.sortingLayerID) : renderer.sortingLayerName;
+        if (sortingLayerName != DefaultHudSortingLayerName)
+        {
+            return false;
+        }
+
+        if (renderer is SpriteRenderer spriteRenderer && spriteRenderer.sprite == null)
+        {
+            return false;
+        }
+
+        if (renderer.gameObject.name.StartsWith("DeVect_"))
+        {
+            return false;
+        }
+
+        Bounds bounds = renderer.bounds;
+        Vector3 viewport = hudCamera.WorldToViewportPoint(bounds.center);
+        if (viewport.z <= 0f ||
+            viewport.x < LeftHudAnchorMinViewportX ||
+            viewport.x > LeftHudAnchorMaxViewportX ||
+            viewport.y < LeftHudAnchorMinViewportY ||
+            viewport.y > LeftHudAnchorMaxViewportY)
+        {
+            return false;
+        }
+
+        float area = bounds.size.x * bounds.size.y;
+        if (area < LeftHudMinimumArea)
+        {
+            return false;
+        }
+
+        if (!requireNameKeyword)
+        {
+            return true;
+        }
+
+        string objectNameLower = renderer.gameObject.name.ToLowerInvariant();
+        for (int i = 0; i < LeftHudNameKeywords.Length; i++)
+        {
+            if (objectNameLower.Contains(LeftHudNameKeywords[i]))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private void DestroyDuplicateDisplays()
