@@ -1,3 +1,7 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Reflection;
 using DeVect.Combat;
 using UnityEngine;
 
@@ -15,15 +19,13 @@ internal sealed class IceShieldDisplay
     private const int PetalsPerLayer = IceShieldState.PetalsPerShield;
     private const int LayerCount = IceShieldState.MaxShieldLayers;
     private const float BaseScale = 0.2f;
-    private const float LayerScaleStep = 0.18f;
-    private const float PetalRadius = 0.32f;
-    private const float PetalRadiusStep = 0.08f;
-    private const float CoreBaseScale = 0.48f;
-    private const float MistBaseScale = 1.36f;
+    private const float LayerScaleStep = 0.14f;
+    private const float CoreBaseScale = 0.3f;
+    private const float MistBaseScale = 1.5f;
     private const float LayerBobAmplitude = 0.01f;
     private const float LayerSwayAmplitude = 0.008f;
-    private const float JitterAmplitude = 0.02f;
-    private const float JitterFrequency = 2.4f;
+    private const float JitterAmplitude = 0.008f;
+    private const float JitterFrequency = 1.9f;
     private const string SortingLayer = "HUD";
     private const int CoreSortingOrder = 5;
     private const int LayerSortingBase = 6;
@@ -33,16 +35,32 @@ internal sealed class IceShieldDisplay
     private const float LeftHudAnchorMinViewportY = 0.76f;
     private const float LeftHudAnchorMaxViewportY = 1.05f;
     private const float LeftHudMinimumArea = 0.03f;
+    private const string EmbeddedShieldResourceName = "DeVect.assets.ice_shield_hud.png";
 
     private static readonly string[] HealthNameKeywords = { "health", "mask", "blue", "joni", "lifeblood", "hp" };
     private static readonly string[] LeftHudNameKeywords = { "soul", "orb", "vessel", "face", "health", "mask", "ui" };
-    private static readonly Color CoreColor = new(0.72f, 0.94f, 1f, 0.5f);
-    private static readonly Color MistColor = new(0.5f, 0.83f, 1f, 0.16f);
-    private static readonly Color ActivePetalColor = new(0.67f, 0.9f, 1f, 0.42f);
-    private static readonly Color InactivePetalColor = new(0.48f, 0.7f, 0.88f, 0.1f);
-    private static readonly Color AccentColor = new(0.9f, 0.98f, 1f, 0.22f);
+    private static readonly Vector2[] QuadrantPivots =
+    {
+        new(1f, 0f),
+        new(0f, 0f),
+        new(1f, 1f),
+        new(0f, 1f)
+    };
+    private static readonly Vector2[] QuadrantDirections =
+    {
+        new(-1f, 1f),
+        new(1f, 1f),
+        new(-1f, -1f),
+        new(1f, -1f)
+    };
+    private static readonly Color CoreColor = new(0.88f, 0.97f, 1f, 0.22f);
+    private static readonly Color MistColor = new(0.58f, 0.87f, 1f, 0.24f);
+    private static readonly Color ActivePetalColor = new(0.98f, 1f, 1f, 0.96f);
+    private static readonly Color InactivePetalColor = new(0.64f, 0.8f, 0.95f, 0.12f);
+    private static readonly Color AccentColor = new(0.9f, 0.98f, 1f, 0.16f);
 
-    private static Sprite? _petalSprite;
+    private static Sprite[]? _quadrantSprites;
+    private static Texture2D? _embeddedShieldTexture;
     private static Sprite? _mistSprite;
     private static Sprite? _coreSprite;
     private static Sprite? _accentSprite;
@@ -96,7 +114,7 @@ internal sealed class IceShieldDisplay
     {
         if (_root != null)
         {
-            Object.Destroy(_root);
+            UnityEngine.Object.Destroy(_root);
         }
 
         _root = null;
@@ -127,12 +145,12 @@ internal sealed class IceShieldDisplay
         _rootTransform.rotation = Quaternion.identity;
         _rootTransform.localScale = new Vector3(BaseScale, BaseScale, 1f);
 
-        GameObject mist = CreateRendererObject("Mist", _rootTransform, CreateMistSprite(), MistColor, MistSortingOrder, new Vector3(MistBaseScale, MistBaseScale * 0.88f, 1f), out SpriteRenderer mistRenderer);
+        GameObject mist = CreateRendererObject("Mist", _rootTransform, CreateMistSprite(), MistColor, MistSortingOrder, new Vector3(MistBaseScale, MistBaseScale * 0.9f, 1f), out SpriteRenderer mistRenderer);
         mist.transform.localPosition = new Vector3(0f, 0.02f, 0f);
         _mistRenderer = mistRenderer;
 
-        GameObject accent = CreateRendererObject("Accent", _rootTransform, CreateAccentSprite(), AccentColor, CoreSortingOrder + 1, new Vector3(0.8f, 1.06f, 1f), out SpriteRenderer accentRenderer);
-        accent.transform.localPosition = new Vector3(0f, 0.04f, 0f);
+        GameObject accent = CreateRendererObject("Accent", _rootTransform, CreateAccentSprite(), AccentColor, CoreSortingOrder + 1, new Vector3(0.72f, 0.8f, 1f), out SpriteRenderer accentRenderer);
+        accent.transform.localPosition = new Vector3(0f, 0.01f, 0f);
         _accentRenderer = accentRenderer;
 
         GameObject core = CreateRendererObject("Core", _rootTransform, CreateCoreSprite(), CoreColor, CoreSortingOrder, new Vector3(CoreBaseScale, CoreBaseScale, 1f), out SpriteRenderer coreRenderer);
@@ -143,11 +161,10 @@ internal sealed class IceShieldDisplay
             for (int petalIndex = 0; petalIndex < PetalsPerLayer; petalIndex++)
             {
                 int index = (layerIndex * PetalsPerLayer) + petalIndex;
-                float baseAngle = 45f + (petalIndex * (360f / PetalsPerLayer));
                 GameObject petal = CreateRendererObject(
                     $"Petal_{layerIndex}_{petalIndex}",
                     _rootTransform,
-                    CreatePetalSprite(),
+                    GetQuadrantSprite(petalIndex),
                     InactivePetalColor,
                     LayerSortingBase + layerIndex,
                     GetPetalBaseScale(layerIndex),
@@ -155,7 +172,8 @@ internal sealed class IceShieldDisplay
                 );
 
                 Transform petalTransform = petal.transform;
-                petalTransform.localRotation = Quaternion.Euler(0f, 0f, baseAngle);
+                petalTransform.localPosition = GetQuadrantLocalPosition(layerIndex, petalIndex, 0f);
+                petalTransform.localRotation = Quaternion.identity;
                 _petalRenderers[index] = petalRenderer;
                 _petalTransforms[index] = petalTransform;
             }
@@ -198,11 +216,11 @@ internal sealed class IceShieldDisplay
             return;
         }
 
-        float pulse = 1f + (Mathf.Sin((_time * 1.7f) + 0.6f) * 0.08f);
+        float pulse = 1f + (Mathf.Sin((_time * 1.45f) + 0.6f) * 0.06f);
         _coreRenderer.transform.localScale = new Vector3(CoreBaseScale, CoreBaseScale, 1f) * pulse;
         _coreRenderer.color = Color.Lerp(
-            new Color(0.56f, 0.84f, 1f, 0.26f),
-            new Color(0.78f, 0.96f, 1f, 0.54f),
+            new Color(0.54f, 0.84f, 1f, 0.08f),
+            new Color(0.9f, 0.98f, 1f, 0.22f),
             shieldFill);
     }
 
@@ -213,13 +231,15 @@ internal sealed class IceShieldDisplay
             return;
         }
 
-        float swirl = Mathf.Sin((_time * 0.95f) + 1.2f);
+        float swirl = Mathf.Sin((_time * 0.92f) + 1.2f);
+        float drift = Mathf.Cos((_time * 0.61f) + 0.8f);
         _mistRenderer.transform.localScale = new Vector3(
-            MistBaseScale + (shieldFill * 0.28f) + (swirl * 0.06f),
-            (MistBaseScale * 0.88f) + (shieldFill * 0.18f) - (swirl * 0.04f),
+            MistBaseScale + (shieldFill * 0.3f) + (swirl * 0.08f),
+            (MistBaseScale * 0.9f) + (shieldFill * 0.22f) - (swirl * 0.05f),
             1f);
-        _mistRenderer.transform.localPosition = new Vector3(swirl * 0.02f, 0.01f + (shieldFill * 0.02f), 0f);
-        _mistRenderer.color = new Color(0.44f, 0.8f, 1f, 0.1f + (shieldFill * 0.08f));
+        _mistRenderer.transform.localPosition = new Vector3(swirl * 0.026f, 0.018f + (shieldFill * 0.018f) + (drift * 0.012f), 0f);
+        _mistRenderer.transform.localRotation = Quaternion.Euler(0f, 0f, swirl * 2.2f);
+        _mistRenderer.color = new Color(0.52f, 0.84f, 1f, 0.11f + (shieldFill * 0.13f));
     }
 
     private void UpdateAccent(float shieldFill)
@@ -229,10 +249,10 @@ internal sealed class IceShieldDisplay
             return;
         }
 
-        float shimmer = Mathf.Sin((_time * 2.15f) + 2.1f);
-        _accentRenderer.transform.localScale = new Vector3(0.76f + (shieldFill * 0.14f), 1f + (shieldFill * 0.18f), 1f);
-        _accentRenderer.transform.localRotation = Quaternion.Euler(0f, 0f, shimmer * 7f);
-        _accentRenderer.color = new Color(0.92f, 0.99f, 1f, 0.08f + (shieldFill * 0.12f));
+        float shimmer = Mathf.Sin((_time * 1.88f) + 2.1f);
+        _accentRenderer.transform.localScale = new Vector3(0.66f + (shieldFill * 0.1f), 0.78f + (shieldFill * 0.14f), 1f);
+        _accentRenderer.transform.localRotation = Quaternion.Euler(0f, 0f, shimmer * 4f);
+        _accentRenderer.color = new Color(0.94f, 0.99f, 1f, 0.04f + (shieldFill * 0.1f));
     }
 
     private void UpdatePetals(int petalCount, float shieldFill)
@@ -247,34 +267,33 @@ internal sealed class IceShieldDisplay
             }
 
             int layerIndex = i / PetalsPerLayer;
-            int directionIndex = i % PetalsPerLayer;
+            int quadrantIndex = i % PetalsPerLayer;
             bool active = i < petalCount;
-            float layerFactor = 1f + (layerIndex * 0.08f);
-            float baseAngle = 45f + (directionIndex * (360f / PetalsPerLayer));
-            float angleOffset = Mathf.Sin((_time * (1.2f + (layerIndex * 0.17f))) + (directionIndex * 0.9f)) * 6f;
-            float radius = PetalRadius + (layerIndex * PetalRadiusStep) + (Mathf.Sin((_time * 1.4f) + i) * 0.012f);
-            Vector3 outward = Quaternion.Euler(0f, 0f, baseAngle) * Vector3.up;
-            Vector3 layerOffset = outward * radius;
-            layerOffset.y *= 0.92f;
-            layerOffset += new Vector3(
-                Mathf.Sin((_time * JitterFrequency) + i) * JitterAmplitude,
-                Mathf.Cos((_time * (JitterFrequency - 0.35f)) + i) * (JitterAmplitude * 0.65f),
+            float layerPhase = (_time * (0.92f + (layerIndex * 0.08f))) + (quadrantIndex * 0.55f);
+            Vector3 basePosition = GetQuadrantLocalPosition(layerIndex, quadrantIndex, shieldFill);
+            Vector2 quadrantDirection = QuadrantDirections[quadrantIndex];
+            Vector3 drift = new(
+                (Mathf.Sin(layerPhase * JitterFrequency) * JitterAmplitude * 0.45f) + (quadrantDirection.x * Mathf.Sin(layerPhase * 0.78f) * 0.01f),
+                (Mathf.Cos((layerPhase * (JitterFrequency - 0.31f)) + 0.8f) * JitterAmplitude * 0.38f) + (quadrantDirection.y * Mathf.Cos((layerPhase * 0.66f) + 0.4f) * 0.01f),
                 0f);
+            float sway = Mathf.Sin((_time * 1.08f) + (layerIndex * 0.36f) + quadrantIndex) * 2.4f;
+            float pulse = active ? 1f + (Mathf.Sin((_time * 2.1f) + (i * 0.7f)) * 0.025f) : 0.98f;
 
-            transform.localPosition = layerOffset;
-            transform.localRotation = Quaternion.Euler(0f, 0f, baseAngle + angleOffset);
-            transform.localScale = GetPetalBaseScale(layerIndex) * (1f + (shieldFill * 0.12f));
+            transform.localPosition = basePosition + drift;
+            transform.localRotation = Quaternion.Euler(0f, 0f, sway);
+            transform.localScale = GetPetalBaseScale(layerIndex) * (1f + (shieldFill * 0.06f)) * pulse;
             renderer.enabled = active || layerIndex == 0;
 
+            float layerAlpha = Mathf.Clamp01(1f - (layerIndex * 0.14f));
             Color targetColor = active
-                ? Color.Lerp(ActivePetalColor, new Color(0.84f, 0.97f, 1f, 0.5f), shieldFill * 0.8f)
+                ? Color.Lerp(new Color(0.84f, 0.94f, 1f, 0.66f), ActivePetalColor, shieldFill * 0.8f)
                 : InactivePetalColor;
-            float alphaWave = active ? 0.92f + (Mathf.Sin((_time * 2.3f) + i) * 0.08f) : 1f;
+            float alphaWave = active ? 0.94f + (Mathf.Sin((_time * 2.18f) + i) * 0.06f) : 1f;
             renderer.color = new Color(
                 targetColor.r,
                 targetColor.g,
                 targetColor.b,
-                targetColor.a * (1f - (layerIndex * 0.08f)) * alphaWave * layerFactor);
+                targetColor.a * layerAlpha * alphaWave);
         }
     }
 
@@ -584,7 +603,7 @@ internal sealed class IceShieldDisplay
 
     private void DestroyDuplicateDisplays()
     {
-        GameObject[] displays = Object.FindObjectsOfType<GameObject>();
+        GameObject[] displays = UnityEngine.Object.FindObjectsOfType<GameObject>();
         for (int i = 0; i < displays.Length; i++)
         {
             GameObject display = displays[i];
@@ -593,7 +612,7 @@ internal sealed class IceShieldDisplay
                 continue;
             }
 
-            Object.Destroy(display);
+            UnityEngine.Object.Destroy(display);
         }
     }
 
@@ -623,51 +642,319 @@ internal sealed class IceShieldDisplay
 
     private static Vector3 GetPetalBaseScale(int layerIndex)
     {
-        float scale = 0.7f + (layerIndex * LayerScaleStep);
-        return new Vector3(scale, scale * 1.18f, 1f);
+        float scale = 0.62f + (layerIndex * LayerScaleStep);
+        return new Vector3(scale, scale, 1f);
     }
 
-    private static Sprite CreatePetalSprite()
+    private static Vector3 GetQuadrantLocalPosition(int layerIndex, int quadrantIndex, float shieldFill)
     {
-        if (_petalSprite != null)
+        Vector2 direction = QuadrantDirections[quadrantIndex];
+        float layerSpread = 0.018f + (layerIndex * 0.026f) + (shieldFill * 0.014f);
+        float verticalBias = quadrantIndex < 2 ? 0.012f : -0.012f;
+        return new Vector3(
+            direction.x * layerSpread,
+            (direction.y * layerSpread * 0.92f) + verticalBias,
+            0f);
+    }
+
+    private static Sprite GetQuadrantSprite(int quadrantIndex)
+    {
+        if (_quadrantSprites == null)
         {
-            return _petalSprite;
+            _quadrantSprites = CreateQuadrantSprites();
         }
 
-        const int width = 56;
-        const int height = 80;
-        Texture2D texture = CreateTexture(width, height, "DeVect_IceShieldLotusPetal");
-        Vector2 center = new(width * 0.5f, height * 0.42f);
-        float maxRadiusX = width * 0.26f;
-        float maxRadiusY = height * 0.42f;
+        return _quadrantSprites[quadrantIndex];
+    }
 
-        for (int y = 0; y < height; y++)
+    private static Sprite[] CreateQuadrantSprites()
+    {
+        Texture2D source = LoadEmbeddedShieldTexture();
+        bool[] backgroundMask = BuildBackgroundMask(source);
+        Sprite[] sprites = new Sprite[PetalsPerLayer];
+
+        for (int quadrantIndex = 0; quadrantIndex < sprites.Length; quadrantIndex++)
         {
-            for (int x = 0; x < width; x++)
+            Texture2D quadrantTexture = CreateQuadrantTexture(source, backgroundMask, quadrantIndex);
+            Sprite sprite = Sprite.Create(
+                quadrantTexture,
+                new Rect(0f, 0f, quadrantTexture.width, quadrantTexture.height),
+                QuadrantPivots[quadrantIndex],
+                Mathf.Max(quadrantTexture.width, quadrantTexture.height));
+            sprite.name = $"DeVect_IceShieldQuadrant_{quadrantIndex}";
+            sprites[quadrantIndex] = sprite;
+        }
+
+        return sprites;
+    }
+
+    private static Texture2D LoadEmbeddedShieldTexture()
+    {
+        if (_embeddedShieldTexture != null)
+        {
+            return _embeddedShieldTexture;
+        }
+
+        Assembly assembly = typeof(IceShieldDisplay).Assembly;
+        Stream? resourceStream = assembly.GetManifestResourceStream(EmbeddedShieldResourceName);
+        if (resourceStream == null)
+        {
+            string[] resourceNames = assembly.GetManifestResourceNames();
+            for (int i = 0; i < resourceNames.Length; i++)
             {
-                float normalizedX = (x - center.x) / maxRadiusX;
-                float normalizedY = (y - center.y) / maxRadiusY;
-                float ellipse = (normalizedX * normalizedX) + (normalizedY * normalizedY);
-                float taper = Mathf.Clamp01(1f - Mathf.Abs(normalizedX) * 0.68f);
-                float sharpenedTip = Mathf.Clamp01((y / (float)height) * 1.2f);
-                if (ellipse > 1f || y < 4)
+                string resourceName = resourceNames[i];
+                if (resourceName.EndsWith("ice_shield_hud.png", StringComparison.OrdinalIgnoreCase))
+                {
+                    resourceStream = assembly.GetManifestResourceStream(resourceName);
+                    if (resourceStream != null)
+                    {
+                        break;
+                    }
+                }
+            }
+        }
+
+        if (resourceStream == null)
+        {
+            _embeddedShieldTexture = CreateFallbackShieldTexture();
+            return _embeddedShieldTexture;
+        }
+
+        using (resourceStream)
+        using (MemoryStream buffer = new())
+        {
+            resourceStream.CopyTo(buffer);
+            Texture2D texture = CreateTexture(2, 2, "DeVect_IceShieldEmbeddedSource");
+            if (!ImageConversion.LoadImage(texture, buffer.ToArray(), false))
+            {
+                UnityEngine.Object.Destroy(texture);
+                _embeddedShieldTexture = CreateFallbackShieldTexture();
+                return _embeddedShieldTexture;
+            }
+
+            texture.filterMode = FilterMode.Bilinear;
+            texture.wrapMode = TextureWrapMode.Clamp;
+            _embeddedShieldTexture = texture;
+            return _embeddedShieldTexture;
+        }
+    }
+
+    private static bool[] BuildBackgroundMask(Texture2D source)
+    {
+        int width = source.width;
+        int height = source.height;
+        Color32[] pixels = source.GetPixels32();
+        bool[] mask = new bool[pixels.Length];
+        Queue<int> queue = new();
+
+        void EnqueueIfBackground(int x, int y)
+        {
+            int index = (y * width) + x;
+            if (mask[index] || !IsBackgroundCandidate(pixels[index]))
+            {
+                return;
+            }
+
+            mask[index] = true;
+            queue.Enqueue(index);
+        }
+
+        for (int x = 0; x < width; x++)
+        {
+            EnqueueIfBackground(x, 0);
+            EnqueueIfBackground(x, height - 1);
+        }
+
+        for (int y = 1; y < height - 1; y++)
+        {
+            EnqueueIfBackground(0, y);
+            EnqueueIfBackground(width - 1, y);
+        }
+
+        while (queue.Count > 0)
+        {
+            int index = queue.Dequeue();
+            int x = index % width;
+            int y = index / width;
+
+            if (x > 0)
+            {
+                EnqueueIfBackground(x - 1, y);
+            }
+
+            if (x < width - 1)
+            {
+                EnqueueIfBackground(x + 1, y);
+            }
+
+            if (y > 0)
+            {
+                EnqueueIfBackground(x, y - 1);
+            }
+
+            if (y < height - 1)
+            {
+                EnqueueIfBackground(x, y + 1);
+            }
+        }
+
+        return mask;
+    }
+
+    private static bool IsBackgroundCandidate(Color32 color)
+    {
+        float alpha = color.a / 255f;
+        if (alpha <= 0.01f)
+        {
+            return true;
+        }
+
+        float red = color.r / 255f;
+        float green = color.g / 255f;
+        float blue = color.b / 255f;
+        float max = Mathf.Max(red, Mathf.Max(green, blue));
+        float min = Mathf.Min(red, Mathf.Min(green, blue));
+        float luminance = GetLuminance(new Color(red, green, blue, alpha));
+        return alpha >= 0.99f && luminance >= 0.93f && (max - min) <= 0.09f;
+    }
+
+    private static Texture2D CreateQuadrantTexture(Texture2D source, bool[] backgroundMask, int quadrantIndex)
+    {
+        int fullWidth = source.width;
+        int fullHeight = source.height;
+        int halfWidth = fullWidth / 2;
+        int halfHeight = fullHeight / 2;
+        int sourceX = (quadrantIndex % 2) * halfWidth;
+        int sourceY = quadrantIndex < 2 ? halfHeight : 0;
+        Color32[] sourcePixels = source.GetPixels32();
+        Color[] remappedPixels = new Color[halfWidth * halfHeight];
+
+        for (int y = 0; y < halfHeight; y++)
+        {
+            for (int x = 0; x < halfWidth; x++)
+            {
+                int sourcePixelX = sourceX + x;
+                int sourcePixelY = sourceY + y;
+                int sourceIndex = (sourcePixelY * fullWidth) + sourcePixelX;
+                int targetIndex = (y * halfWidth) + x;
+                if (backgroundMask[sourceIndex])
+                {
+                    remappedPixels[targetIndex] = Color.clear;
+                    continue;
+                }
+
+                Color sourceColor = sourcePixels[sourceIndex];
+                float edgeFactor = GetForegroundEdgeFactor(backgroundMask, sourcePixelX, sourcePixelY, fullWidth, fullHeight);
+                Color remappedColor = RemapToIcePalette(sourceColor, edgeFactor);
+                float softEdgeFade = Mathf.Clamp01(1f - (Mathf.InverseLerp(0.88f, 1f, GetLuminance(sourceColor)) * edgeFactor * 0.55f));
+                remappedColor.a = sourceColor.a * softEdgeFade;
+                remappedPixels[targetIndex] = remappedColor;
+            }
+        }
+
+        Texture2D texture = CreateTexture(halfWidth, halfHeight, $"DeVect_IceShieldQuadrantTexture_{quadrantIndex}");
+        texture.SetPixels(remappedPixels);
+        texture.Apply();
+        return texture;
+    }
+
+    private static float GetForegroundEdgeFactor(bool[] backgroundMask, int x, int y, int width, int height)
+    {
+        int backgroundSamples = 0;
+        int sampleCount = 0;
+
+        for (int offsetY = -1; offsetY <= 1; offsetY++)
+        {
+            for (int offsetX = -1; offsetX <= 1; offsetX++)
+            {
+                if (offsetX == 0 && offsetY == 0)
+                {
+                    continue;
+                }
+
+                int sampleX = x + offsetX;
+                int sampleY = y + offsetY;
+                sampleCount++;
+                if (sampleX < 0 || sampleX >= width || sampleY < 0 || sampleY >= height)
+                {
+                    backgroundSamples++;
+                    continue;
+                }
+
+                if (backgroundMask[(sampleY * width) + sampleX])
+                {
+                    backgroundSamples++;
+                }
+            }
+        }
+
+        if (sampleCount == 0)
+        {
+            return 0f;
+        }
+
+        return backgroundSamples / (float)sampleCount;
+    }
+
+    private static Color RemapToIcePalette(Color sourceColor, float edgeFactor)
+    {
+        float luminance = GetLuminance(sourceColor);
+        float maxChannel = Mathf.Max(sourceColor.r, Mathf.Max(sourceColor.g, sourceColor.b));
+        float minChannel = Mathf.Min(sourceColor.r, Mathf.Min(sourceColor.g, sourceColor.b));
+        float contrast = maxChannel - minChannel;
+
+        Color deepIce = new(0.12f, 0.3f, 0.66f, 1f);
+        Color midIce = new(0.34f, 0.72f, 0.98f, 1f);
+        Color frost = new(0.82f, 0.97f, 1f, 1f);
+        Color brightFrost = new(0.98f, 1f, 1f, 1f);
+
+        Color baseColor = luminance >= 0.72f
+            ? Color.Lerp(frost, brightFrost, Mathf.Pow(Mathf.InverseLerp(0.72f, 1f, luminance), 0.7f))
+            : Color.Lerp(deepIce, midIce, Mathf.Pow(Mathf.Clamp01(luminance + (contrast * 0.12f)), 0.82f));
+
+        float bloom = Mathf.Clamp01((edgeFactor * 0.68f) + Mathf.Max(0f, luminance - 0.82f) * 0.55f);
+        return Color.Lerp(baseColor, brightFrost, bloom * 0.42f);
+    }
+
+    private static float GetLuminance(Color color)
+    {
+        return (color.r * 0.2126f) + (color.g * 0.7152f) + (color.b * 0.0722f);
+    }
+
+    private static Texture2D CreateFallbackShieldTexture()
+    {
+        const int size = 128;
+        Texture2D texture = CreateTexture(size, size, "DeVect_IceShieldFallbackSource");
+        Vector2 center = new(size * 0.5f, size * 0.5f);
+        float innerRadius = size * 0.18f;
+        float outerRadius = size * 0.36f;
+
+        for (int y = 0; y < size; y++)
+        {
+            for (int x = 0; x < size; x++)
+            {
+                Vector2 delta = new(x - center.x, y - center.y);
+                float angle = Mathf.Atan2(delta.y, delta.x);
+                float petals = 0.26f + (0.12f * Mathf.Cos(angle * 4f));
+                float radius = delta.magnitude / size;
+                bool insideFlower = radius <= outerRadius / size + petals;
+                bool insideStar = Mathf.Abs(delta.x) <= innerRadius || Mathf.Abs(delta.y) <= innerRadius;
+
+                if (!insideFlower)
                 {
                     texture.SetPixel(x, y, Color.clear);
                     continue;
                 }
 
-                float body = Mathf.Pow(1f - ellipse, 1.3f) * taper;
-                float ridge = Mathf.Clamp01(1f - Mathf.Abs(normalizedX) * 2.1f) * sharpenedTip;
-                float alpha = Mathf.Clamp01((body * 0.9f) + (ridge * 0.24f));
-                Color color = Color.Lerp(new Color(0.34f, 0.7f, 0.95f, alpha), new Color(0.88f, 0.98f, 1f, alpha), ridge * 0.75f);
-                texture.SetPixel(x, y, new Color(color.r, color.g, color.b, alpha));
+                Color color = insideStar
+                    ? new Color(0.95f, 0.99f, 1f, 1f)
+                    : new Color(0.2f, 0.52f, 0.92f, 1f);
+                texture.SetPixel(x, y, color);
             }
         }
 
         texture.Apply();
-        _petalSprite = Sprite.Create(texture, new Rect(0f, 0f, width, height), new Vector2(0.5f, 0.12f), width);
-        _petalSprite.name = "DeVect_IceShieldLotusPetalSprite";
-        return _petalSprite;
+        return texture;
     }
 
     private static Sprite CreateMistSprite()
@@ -677,8 +964,8 @@ internal sealed class IceShieldDisplay
             return _mistSprite;
         }
 
-        const int width = 96;
-        const int height = 72;
+        const int width = 144;
+        const int height = 110;
         Texture2D texture = CreateTexture(width, height, "DeVect_IceShieldMist");
         Vector2 center = new(width * 0.5f, height * 0.52f);
 
@@ -686,13 +973,21 @@ internal sealed class IceShieldDisplay
         {
             for (int x = 0; x < width; x++)
             {
-                float nx = (x - center.x) / (width * 0.42f);
-                float ny = (y - center.y) / (height * 0.3f);
-                float distance = Mathf.Sqrt((nx * nx) + (ny * ny));
-                float cloud = Mathf.Clamp01(1f - distance);
-                float noise = 0.65f + (0.2f * Mathf.Sin((x * 0.22f) + (y * 0.18f))) + (0.15f * Mathf.Cos((x * 0.11f) - (y * 0.2f)));
-                float alpha = Mathf.Clamp01(cloud * noise * 0.34f);
-                texture.SetPixel(x, y, new Color(0.64f, 0.9f, 1f, alpha));
+                float nx = (x - center.x) / (width * 0.46f);
+                float ny = (y - center.y) / (height * 0.36f);
+                float distance = Mathf.Sqrt((nx * nx) + (ny * ny * 1.1f));
+                float body = Mathf.Clamp01(1f - distance);
+                float ring = Mathf.Clamp01(1f - Mathf.Abs(distance - 0.62f) * 2.4f);
+                float upperWisp = Mathf.Clamp01(1f - Vector2.Distance(new Vector2(nx, ny), new Vector2(0f, 0.18f)) * 1.85f);
+                float sideWisp = Mathf.Clamp01(1f - Vector2.Distance(new Vector2(Mathf.Abs(nx), ny), new Vector2(0.54f, 0.02f)) * 1.9f);
+                float noise =
+                    0.58f +
+                    (0.18f * Mathf.Sin((x * 0.14f) + (y * 0.09f))) +
+                    (0.16f * Mathf.Cos((x * 0.08f) - (y * 0.17f))) +
+                    (0.08f * Mathf.Sin((x * 0.29f) - (y * 0.06f)));
+                float alpha = Mathf.Clamp01(((body * 0.16f) + (ring * 0.13f) + (upperWisp * 0.12f) + (sideWisp * 0.09f)) * noise);
+                Color color = Color.Lerp(new Color(0.46f, 0.78f, 1f, alpha), new Color(0.9f, 0.98f, 1f, alpha), Mathf.Clamp01(body + (upperWisp * 0.4f)));
+                texture.SetPixel(x, y, new Color(color.r, color.g, color.b, alpha));
             }
         }
 
@@ -709,7 +1004,7 @@ internal sealed class IceShieldDisplay
             return _coreSprite;
         }
 
-        const int size = 56;
+        const int size = 68;
         Texture2D texture = CreateTexture(size, size, "DeVect_IceShieldCore");
         Vector2 center = new(size * 0.5f, size * 0.5f);
         float radius = size * 0.5f;
@@ -725,8 +1020,8 @@ internal sealed class IceShieldDisplay
                     continue;
                 }
 
-                float alpha = Mathf.Pow(1f - distance, 1.8f) * 0.72f;
-                Color color = Color.Lerp(new Color(0.26f, 0.66f, 1f, alpha), new Color(0.94f, 0.99f, 1f, alpha), Mathf.Pow(1f - distance, 2.8f));
+                float alpha = Mathf.Pow(1f - distance, 2.4f) * 0.42f;
+                Color color = Color.Lerp(new Color(0.34f, 0.74f, 1f, alpha), new Color(0.98f, 1f, 1f, alpha), Mathf.Pow(1f - distance, 3.2f));
                 texture.SetPixel(x, y, new Color(color.r, color.g, color.b, alpha));
             }
         }
@@ -744,26 +1039,26 @@ internal sealed class IceShieldDisplay
             return _accentSprite;
         }
 
-        const int width = 48;
-        const int height = 72;
-        Texture2D texture = CreateTexture(width, height, "DeVect_IceShieldAccent");
-        Vector2 center = new(width * 0.5f, height * 0.5f);
+        const int size = 76;
+        Texture2D texture = CreateTexture(size, size, "DeVect_IceShieldAccent");
+        Vector2 center = new(size * 0.5f, size * 0.5f);
 
-        for (int y = 0; y < height; y++)
+        for (int y = 0; y < size; y++)
         {
-            for (int x = 0; x < width; x++)
+            for (int x = 0; x < size; x++)
             {
-                float nx = Mathf.Abs((x - center.x) / (width * 0.22f));
-                float ny = Mathf.Abs((y - center.y) / (height * 0.42f));
-                float line = Mathf.Clamp01(1f - nx - (ny * 0.38f));
-                float side = Mathf.Clamp01(1f - Mathf.Abs(nx - (0.48f - (ny * 0.28f))) * 3.8f);
-                float alpha = Mathf.Max(line * 0.16f, side * 0.1f);
-                texture.SetPixel(x, y, new Color(0.88f, 0.98f, 1f, alpha));
+                float dx = Mathf.Abs(x - center.x) / (size * 0.16f);
+                float dy = Mathf.Abs(y - center.y) / (size * 0.16f);
+                float vertical = Mathf.Clamp01(1f - dx - (dy * 0.2f));
+                float horizontal = Mathf.Clamp01(1f - dy - (dx * 0.2f));
+                float diamond = Mathf.Clamp01(1f - ((Mathf.Abs(x - center.x) + Mathf.Abs(y - center.y)) / (size * 0.38f)));
+                float alpha = Mathf.Max(vertical * 0.1f, Mathf.Max(horizontal * 0.1f, diamond * 0.08f));
+                texture.SetPixel(x, y, new Color(0.94f, 0.99f, 1f, alpha));
             }
         }
 
         texture.Apply();
-        _accentSprite = Sprite.Create(texture, new Rect(0f, 0f, width, height), new Vector2(0.5f, 0.36f), width);
+        _accentSprite = Sprite.Create(texture, new Rect(0f, 0f, size, size), new Vector2(0.5f, 0.5f), size);
         _accentSprite.name = "DeVect_IceShieldAccentSprite";
         return _accentSprite;
     }

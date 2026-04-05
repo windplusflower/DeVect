@@ -68,6 +68,12 @@
     </Reference>
   </ItemGroup>
 
+  <ItemGroup>
+    <EmbeddedResource Include="assets/ice_shield_hud.png">
+      <LogicalName>DeVect.assets.ice_shield_hud.png</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
+
   <Target Name="InstallMod" AfterTargets="Build">
     <ItemGroup>
       <ModInstallFiles Include="$(TargetPath)" />
