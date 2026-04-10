@@ -1,6 +1,5 @@
 using System;
 using HutongGames.PlayMaker;
-using UnityEngine;
 
 namespace DeVect.Fsm;
 
@@ -20,8 +19,8 @@ public sealed class SpellDetectAction : FsmStateAction
 
     public override void OnEnter()
     {
-        float verticalInput = Input.GetAxisRaw("Vertical");
-        if (verticalInput > 0.1f)
+        HeroActions? inputActions = InputHandler.Instance?.inputActions;
+        if (inputActions != null && inputActions.up.IsPressed)
         {
             bool shouldConsumeShriek = ShouldConsumeShriekSpell?.Invoke() ?? false;
             if (shouldConsumeShriek)
@@ -37,7 +36,7 @@ public sealed class SpellDetectAction : FsmStateAction
             return;
         }
 
-        if (verticalInput < -0.1f)
+        if (inputActions != null && inputActions.down.IsPressed)
         {
             bool shouldConsumeDive = ShouldConsumeDiveSpell?.Invoke() ?? false;
             if (shouldConsumeDive)
@@ -53,17 +52,14 @@ public sealed class SpellDetectAction : FsmStateAction
             return;
         }
 
-        if (verticalInput >= -0.1f)
+        bool shouldConsumeFireball = ShouldConsumeFireballSpell?.Invoke() ?? false;
+        if (shouldConsumeFireball)
         {
-            bool shouldConsumeFireball = ShouldConsumeFireballSpell?.Invoke() ?? false;
-            if (shouldConsumeFireball)
-            {
-                OnFireballCast?.Invoke();
-                ConsumeSpellCost();
-                Fsm.Event("FSM CANCEL");
-                Finish();
-                return;
-            }
+            OnFireballCast?.Invoke();
+            ConsumeSpellCost();
+            Fsm.Event("FSM CANCEL");
+            Finish();
+            return;
         }
 
         Finish();
