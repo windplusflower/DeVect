@@ -13,7 +13,7 @@ internal sealed class WhiteOrbDefinition : IOrbDefinition
 
     public string DisplayName => "White";
 
-    public Color OrbColor => new(0.92f, 0.96f, 1f, 1f);
+    public Color OrbColor => new(0.74f, 0.92f, 1f, 1f);
 
     public int GetInitialDamage(OrbTriggerContext context)
     {

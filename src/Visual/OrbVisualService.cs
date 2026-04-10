@@ -110,7 +110,7 @@ internal sealed class OrbVisualService
 
         SpriteRenderer flashRenderer = flash.AddComponent<SpriteRenderer>();
         flashRenderer.sprite = CreateGlassFlashSprite();
-        flashRenderer.color = new Color(1f, 1f, 1f, 1f);
+        flashRenderer.color = new Color(0.94f, 0.99f, 1f, 1f);
         flashRenderer.sortingLayerName = "HUD";
         flashRenderer.sortingOrder = 14;
         _transientVisuals.Add(new TransientVisual(flash, flashRenderer, GlassFlashLifetime, Vector3.zero, flashRenderer.color, new Vector3(1.16f, 1.16f, 1f)));
@@ -122,7 +122,7 @@ internal sealed class OrbVisualService
 
         SpriteRenderer ringRenderer = ring.AddComponent<SpriteRenderer>();
         ringRenderer.sprite = CreateRefractionRingSprite();
-        ringRenderer.color = new Color(0.84f, 0.98f, 1f, 0.98f);
+        ringRenderer.color = new Color(0.5f, 0.88f, 1f, 0.96f);
         ringRenderer.sortingLayerName = "HUD";
         ringRenderer.sortingOrder = 13;
         _transientVisuals.Add(new TransientVisual(ring, ringRenderer, RefractionRingLifetime, Vector3.zero, ringRenderer.color, new Vector3(1.1f, 1.1f, 1f)));
@@ -150,9 +150,12 @@ internal sealed class OrbVisualService
 
             SpriteRenderer shardRenderer = shard.AddComponent<SpriteRenderer>();
             shardRenderer.sprite = CreateGlassShardSprite();
-            shardRenderer.color = i % 2 == 0
-                ? new Color(1f, 1f, 1f, 1f)
-                : new Color(0.8f, 0.96f, 1f, 0.98f);
+            shardRenderer.color = i % 3 switch
+            {
+                0 => new Color(0.97f, 1f, 1f, 1f),
+                1 => new Color(0.68f, 0.93f, 1f, 0.94f),
+                _ => new Color(0.42f, 0.8f, 1f, 0.9f)
+            };
             shardRenderer.sortingLayerName = "HUD";
             shardRenderer.sortingOrder = 15;
             _transientVisuals.Add(new TransientVisual(shard, shardRenderer, GlassShardLifetime, velocities[i], shardRenderer.color, shard.transform.localScale));
@@ -433,28 +436,28 @@ internal sealed class OrbVisualService
             parent,
             "GlassInnerGlow",
             CreateCircleSprite(),
-            new Color(baseColor.r, baseColor.g, baseColor.b, 0.22f),
+            new Color(baseColor.r * 0.82f, baseColor.g * 0.94f, 1f, 0.36f),
             11,
-            new Vector3(0.01f, -0.01f, 0f),
-            new Vector3(0.76f, 0.76f, 1f));
+            new Vector3(0.015f, -0.015f, 0f),
+            new Vector3(0.82f, 0.82f, 1f));
 
         CreateLayerRenderer(
             parent,
             "GlassFacet",
             CreateGlassShardSprite(),
-            new Color(1f, 1f, 1f, 0.42f),
+            new Color(0.88f, 0.99f, 1f, 0.64f),
             12,
-            new Vector3(-0.03f, 0.02f, 0f),
-            new Vector3(0.55f, 0.55f, 1f));
+            new Vector3(-0.04f, 0.03f, 0f),
+            new Vector3(0.62f, 0.62f, 1f));
 
         CreateLayerRenderer(
             parent,
             "GlassHighlight",
             CreateHighlightSprite(),
-            new Color(1f, 1f, 1f, 0.9f),
+            new Color(1f, 1f, 1f, 0.98f),
             13,
-            new Vector3(-0.11f, 0.11f, 0f),
-            new Vector3(0.52f, 0.52f, 1f));
+            new Vector3(-0.12f, 0.12f, 0f),
+            new Vector3(0.48f, 0.48f, 1f));
     }
 
     private static void AddBlackOrbMaterialLayers(Transform parent, Color baseColor)
