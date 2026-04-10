@@ -117,11 +117,11 @@
 - [x] 2. 修改 `SpellDetectAction.OnEnter()`，用 `InputHandler.Instance.inputActions.up/down.IsPressed` 替代 `Input.GetAxisRaw("Vertical")`
 - [x] 3. 保持“上 -> shriek，下 -> dive，否则 fireball”的既有行为，并在输入对象缺失时回落到 fireball 分支
 - [x] 4. 执行最小验证并回填 execute log / review verdict
-- [ ] 5. 提交 `DeVect` 当前修改
+- [x] 5. 提交 `DeVect` 当前修改
 
 #### [StubbornKnight]
 - [x] 6. 确认 `StubbornKnight` 仅存在待推送提交，无需额外代码改动
-- [ ] 7. 将 `StubbornKnight` 当前 `main` 推送到 `origin/main`
+- [x] 7. 将 `StubbornKnight` 当前 `main` 推送到 `origin/main`
 
 ### 4.4 Contract Interfaces (cross-project only)
 | Provider | Interface / API | Consumer(s) | Breaking Change? | Migration Plan |
@@ -146,9 +146,12 @@
 - [x] Step 1: 新建本轮多项目 spec，记录 `DeVect` 修复范围与 `StubbornKnight` 推送边界
 - [x] Step 2: 在 `src/Fsm/SpellDetectAction.cs` 中移除 `Input.GetAxisRaw("Vertical")`，改为读取 `InputHandler.Instance.inputActions.up/down.IsPressed`
 - [x] Step 3: 执行 `rg` 与 `dotnet build` 做最小验证；确认文件中已无 `Input.GetAxisRaw`，构建因 `DeVect.csproj` 配置的 Hollow Knight DLL 路径不存在而失败
+- [x] Step 4: 提交 `DeVect` 修改，生成提交 `bfa169b26b718e4881596d6afe7901d2aa1356dc`
+- [x] Step 5: 推送 `DeVect/main` 到 `origin/main`
 
 #### [StubbornKnight]
-- [x] Step 4: 确认 `StubbornKnight` 当前 `main` 本地领先 `origin/main` 2 个提交，仅待执行 push
+- [x] Step 6: 确认 `StubbornKnight` 当前 `main` 本地领先 `origin/main` 2 个提交，仅待执行 push
+- [x] Step 7: 推送 `StubbornKnight/main` 到 `origin/main`，远端更新至 `3c1f60afdf455c11ae9bde25abcb3cf058875f4f`
 
 ## 6. Review Verdict
 - Review Matrix (Mandatory):
@@ -182,8 +185,8 @@
 - Source Targets:
   - `mydocs/specs/2026-04-10_08-47_DeVectSpellInputHandlerFixAndPush.md`
 - Archive Outputs:
-  - `git commit`
-  - `git push`
+  - `git commit` -> `bfa169b26b718e4881596d6afe7901d2aa1356dc`
+  - `git push` -> `DeVect/main`, `StubbornKnight/main`
 - Key Distilled Knowledge:
   - Hollow Knight mod 的方向判定应优先跟随 `InputHandler.Instance.inputActions`
   - 对仅区分上/下/默认的法术分支，直接替换输入源即可，不需要额外抽象方向层
