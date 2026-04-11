@@ -6,6 +6,9 @@ namespace DeVect.Orbs.Definitions;
 
 internal sealed class IceOrbDefinition : IOrbDefinition
 {
+    private const float PassiveShieldEffectYOffset = -0.98f;
+    private const float EvocationShieldEffectYOffset = -0.96f;
+
     private readonly IceShieldState _shieldState;
 
     public IceOrbDefinition(IceShieldState shieldState)
@@ -26,12 +29,12 @@ internal sealed class IceOrbDefinition : IOrbDefinition
 
     public void OnPassive(OrbTriggerContext context, OrbInstance instance)
     {
-        ApplyShieldGain(context, 1, 1, 0.02f, "passive");
+        ApplyShieldGain(context, 1, 1, PassiveShieldEffectYOffset, "passive");
     }
 
     public void OnEvocation(OrbTriggerContext context, OrbInstance instance)
     {
-        ApplyShieldGain(context, 3, IceShieldState.PetalsPerShield, 0.04f, "evocation");
+        ApplyShieldGain(context, 3, IceShieldState.PetalsPerShield, EvocationShieldEffectYOffset, "evocation");
     }
 
     private void ApplyShieldGain(OrbTriggerContext context, int petalsToAdd, int effectPetalCount, float effectYOffset, string sourceLabel)

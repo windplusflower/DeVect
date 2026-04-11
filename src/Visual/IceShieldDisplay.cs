@@ -12,6 +12,11 @@ internal sealed class IceShieldDisplay
     private const int DefaultHudLayer = 27;
     private const string DefaultHudSortingLayerName = "HUD";
     private const int DefaultHudSortingOrder = 0;
+    private const int GlowSortingOrderOffset = -4;
+    private const int HaloSortingOrderOffset = -3;
+    private const int MistSortingOrderOffset = -2;
+    private const int PetalSortingOrderOffset = -1;
+    private const int HighlightSortingOrderOffset = 0;
     private const float DefaultAnchorViewportX = 0.18f;
     private const float DefaultAnchorViewportY = 0.86f;
     private const float LeftHudAnchorViewportOffsetX = 0.11f;
@@ -29,16 +34,24 @@ internal sealed class IceShieldDisplay
     private const float RootScale = 1f;
     private const float IconSpacing = 0.19f;
     private const float IconBaseScale = 0.5f;
-    private const float GlowBaseScale = 0.74f;
-    private const float HaloBaseScale = 0.78f;
-    private const float MistBaseScale = 0.8f;
-    private const float HighlightBaseScale = 0.66f;
-    private const float QuadrantLocalSpreadX = 0f;
-    private const float QuadrantLocalSpreadY = 0f;
-    private const float PetalPulseAmplitude = 0f;
-    private const float PulseAmplitude = 0f;
-    private const float BobAmplitude = 0f;
-    private const float SwayAmplitude = 0f;
+    private const float GlowBaseScale = 0.84f;
+    private const float HaloBaseScale = 0.9f;
+    private const float MistBaseScale = 0.95f;
+    private const float HighlightBaseScale = 0.69f;
+    private const float QuadrantLocalSpreadX = 0.006f;
+    private const float QuadrantLocalSpreadY = 0.005f;
+    private const float QuadrantMotionAmplitudeX = 0.0009f;
+    private const float QuadrantMotionAmplitudeY = 0.0007f;
+    private const float PetalPulseAmplitude = 0.01f;
+    private const float PulseAmplitude = 0.012f;
+    private const float BobAmplitude = 0.0024f;
+    private const float SwayAmplitude = 0.0016f;
+    private const float GlowLocalOffsetY = -0.008f;
+    private const float HaloLocalOffsetY = 0.003f;
+    private const float MistLocalOffsetX = -0.006f;
+    private const float MistLocalOffsetY = 0.02f;
+    private const float HighlightLocalOffsetX = -0.032f;
+    private const float HighlightLocalOffsetY = 0.058f;
     private const string EmbeddedShieldResourceName = "DeVect.assets.ice_shield_hud.png";
 
     private static readonly string[] HealthNameKeywords = { "health", "mask", "blue", "joni", "lifeblood", "hp" };
@@ -57,11 +70,13 @@ internal sealed class IceShieldDisplay
         new(-1f, -1f),
         new(1f, -1f)
     };
-    private static readonly Color GlowColor = new(0.48f, 0.78f, 1f, 0.18f);
-    private static readonly Color HaloColor = new(0.56f, 0.83f, 1f, 0.12f);
-    private static readonly Color MistColor = new(0.8f, 0.96f, 1f, 0.2f);
-    private static readonly Color HighlightColor = new(0.94f, 1f, 1f, 0.34f);
-    private static readonly Color ShieldColor = new(0.92f, 0.98f, 1f, 0.98f);
+    private static readonly Color GlowColor = new(0.34f, 0.82f, 1f, 0.34f);
+    private static readonly Color HaloColor = new(0.64f, 0.93f, 1f, 0.3f);
+    private static readonly Color MistColor = new(0.76f, 0.97f, 1f, 0.31f);
+    private static readonly Color HighlightColor = new(0.94f, 0.99f, 1f, 0.4f);
+    private static readonly Color ShieldShadowColor = new(0.34f, 0.62f, 0.97f, 1f);
+    private static readonly Color ShieldColor = new(0.68f, 0.93f, 1f, 1f);
+    private static readonly Color ShieldFrostColor = new(0.9f, 0.98f, 1f, 1f);
 
     private static Texture2D? _embeddedShieldTexture;
     private static Sprite[]? _quadrantSprites;
@@ -85,7 +100,7 @@ internal sealed class IceShieldDisplay
     public void Tick(int petalCount)
     {
         Camera? hudCamera = GameCameras.instance != null ? GameCameras.instance.hudCamera : null;
-        if (hudCamera == null || !hudCamera.gameObject.activeInHierarchy)
+        if (hudCamera == null || !IsVanillaHudVisible(hudCamera))
         {
             SetVisible(false);
             return;
@@ -271,6 +286,7 @@ internal sealed class IceShieldDisplay
             float mistAlphaPulse = 0.98f + (Mathf.Sin((_time * 1.74f) + (i * 0.61f)) * 0.05f);
             float highlightPhase = (_time * 1.48f) + (i * 0.42f);
             float highlightPulse = 0.98f + (Mathf.Sin(highlightPhase) * 0.11f);
+            float glowPhase = (_time * 0.94f) + (i * 0.24f);
 
             Vector3 basePosition = slotPositions[i];
             slotTransform.position = new Vector3(basePosition.x + sharedOffset.x, basePosition.y + sharedOffset.y + bob, 0f);
@@ -291,52 +307,59 @@ internal sealed class IceShieldDisplay
                     continue;
                 }
 
+                Vector2 quadrantDirection = QuadrantDirections[quadrantIndex];
+                float lightFacing = Mathf.Clamp01(((-quadrantDirection.x * 0.58f) + (quadrantDirection.y * 0.82f) + 1.4f) * 0.42f);
                 float petalPulse = 1f + (Mathf.Sin((_time * 2.35f) + (i * 0.5f) + quadrantIndex) * PetalPulseAmplitude);
-                float shieldScale = IconBaseScale * pulse * petalPulse;
-                petalRenderer.transform.localPosition = GetQuadrantLocalPosition(quadrantIndex);
-                petalRenderer.transform.localScale = new Vector3(shieldScale, shieldScale, 1f);
-                petalRenderer.color = new Color(
-                    ShieldColor.r,
-                    ShieldColor.g,
-                    ShieldColor.b,
-                    (0.78f + (fill * 0.16f)) * shimmer);
+                float shieldScale = IconBaseScale * pulse * petalPulse * Mathf.Lerp(0.98f, 1.06f, lightFacing);
+                float quadrantMotionPhase = (_time * 1.92f) + (i * 0.44f) + (quadrantIndex * 0.78f);
+                petalRenderer.transform.localPosition = GetQuadrantLocalPosition(quadrantIndex, quadrantMotionPhase, fill);
+                petalRenderer.transform.localScale = new Vector3(shieldScale, shieldScale * Mathf.Lerp(0.97f, 1.03f, lightFacing), 1f);
+
+                float bodyBlend = Mathf.Lerp(0.6f, 0.9f, lightFacing);
+                Color petalColor = Color.Lerp(ShieldShadowColor, ShieldColor, bodyBlend);
+                petalColor = Color.Lerp(petalColor, ShieldFrostColor, (lightFacing * 0.13f) + (fill * 0.055f));
+                petalColor.a = Mathf.Clamp01((0.9f + (fill * 0.09f)) * shimmer);
+                petalRenderer.color = petalColor;
             }
 
-            float glowScale = GlowBaseScale;
+            float glowScale = GlowBaseScale * (1.04f + (fill * 0.1f)) * (0.99f + (Mathf.Sin(glowPhase) * 0.024f));
             glowRenderer.transform.localScale = new Vector3(glowScale, glowScale * 0.92f, 1f);
-            glowRenderer.transform.localPosition = Vector3.zero;
+            glowRenderer.transform.localPosition = new Vector3(0f, GlowLocalOffsetY, 0f);
             glowRenderer.color = new Color(
                 GlowColor.r,
                 GlowColor.g,
                 GlowColor.b,
-                0.02f + (fill * 0.045f));
+                (0.108f + (fill * 0.138f)) * shimmer);
 
-            float haloScale = HaloBaseScale * (0.96f + (fill * 0.04f)) * haloScalePulse;
+            float haloScale = HaloBaseScale * (1.015f + (fill * 0.11f)) * haloScalePulse;
             haloRenderer.transform.localScale = new Vector3(haloScale, haloScale * 0.96f, 1f);
-            haloRenderer.transform.localPosition = Vector3.zero;
+            haloRenderer.transform.localPosition = new Vector3(0f, HaloLocalOffsetY + (Mathf.Sin(haloPhase) * 0.0016f), 0f);
             haloRenderer.color = new Color(
                 HaloColor.r,
                 HaloColor.g,
                 HaloColor.b,
-                (0.024f + (fill * 0.02f)) * shimmer);
+                (0.126f + (fill * 0.082f)) * shimmer);
 
-            float mistScale = MistBaseScale * (1.06f + (fill * 0.12f)) * mistScalePulse;
+            float mistScale = MistBaseScale * (1.1f + (fill * 0.17f)) * mistScalePulse;
             mistRenderer.transform.localScale = new Vector3(mistScale, mistScale * 0.94f, 1f);
-            mistRenderer.transform.localPosition = new Vector3(0f, 0.014f, 0f);
+            mistRenderer.transform.localPosition = new Vector3(MistLocalOffsetX, MistLocalOffsetY + (Mathf.Sin(mistPhase) * 0.0034f), 0f);
             mistRenderer.color = new Color(
                 MistColor.r,
                 MistColor.g,
                 MistColor.b,
-                (0.1f + (fill * 0.06f)) * shimmer * mistAlphaPulse);
+                (0.214f + (fill * 0.122f)) * shimmer * mistAlphaPulse);
 
-            float highlightScale = HighlightBaseScale * (0.94f + (fill * 0.06f));
+            float highlightScale = HighlightBaseScale * (0.96f + (fill * 0.08f)) * (1f + (Mathf.Sin((highlightPhase * 1.08f) + 0.3f) * 0.024f));
             highlightRenderer.transform.localScale = new Vector3(highlightScale, highlightScale, 1f);
-            highlightRenderer.transform.localPosition = new Vector3(-0.02f, 0.046f, 0f);
+            highlightRenderer.transform.localPosition = new Vector3(
+                HighlightLocalOffsetX - (Mathf.Sin(highlightPhase) * 0.0038f),
+                HighlightLocalOffsetY + (Mathf.Cos(highlightPhase) * 0.003f),
+                0f);
             highlightRenderer.color = new Color(
                 HighlightColor.r,
                 HighlightColor.g,
                 HighlightColor.b,
-                (0.4f + (fill * 0.16f)) * highlightPulse);
+                (0.5f + (fill * 0.16f)) * highlightPulse);
         }
     }
 
@@ -407,6 +430,16 @@ internal sealed class IceShieldDisplay
         Vector3 worldPosition = hudCamera.ViewportToWorldPoint(new Vector3(DefaultAnchorViewportX, DefaultAnchorViewportY, worldDistance));
         worldPosition.z = 0f;
         return worldPosition;
+    }
+
+    private static bool IsVanillaHudVisible(Camera hudCamera)
+    {
+        if (!hudCamera.gameObject.activeInHierarchy || !hudCamera.enabled)
+        {
+            return false;
+        }
+
+        return true;
     }
 
     private static bool TryGetLeftHudAnchorWorldPosition(Camera hudCamera, out Vector3 worldPosition)
@@ -495,7 +528,7 @@ internal sealed class IceShieldDisplay
             {
                 glowRenderer.gameObject.layer = config.HudLayer;
                 glowRenderer.sortingLayerName = config.SortingLayerName;
-                glowRenderer.sortingOrder = config.SortingOrder + 1;
+                glowRenderer.sortingOrder = config.SortingOrder + GlowSortingOrderOffset;
             }
 
             SpriteRenderer? haloRenderer = _haloRenderers[i];
@@ -503,7 +536,7 @@ internal sealed class IceShieldDisplay
             {
                 haloRenderer.gameObject.layer = config.HudLayer;
                 haloRenderer.sortingLayerName = config.SortingLayerName;
-                haloRenderer.sortingOrder = config.SortingOrder + 2;
+                haloRenderer.sortingOrder = config.SortingOrder + HaloSortingOrderOffset;
             }
 
             SpriteRenderer? mistRenderer = _mistRenderers[i];
@@ -511,7 +544,7 @@ internal sealed class IceShieldDisplay
             {
                 mistRenderer.gameObject.layer = config.HudLayer;
                 mistRenderer.sortingLayerName = config.SortingLayerName;
-                mistRenderer.sortingOrder = config.SortingOrder + 3;
+                mistRenderer.sortingOrder = config.SortingOrder + MistSortingOrderOffset;
             }
 
             SpriteRenderer? highlightRenderer = _highlightRenderers[i];
@@ -519,7 +552,7 @@ internal sealed class IceShieldDisplay
             {
                 highlightRenderer.gameObject.layer = config.HudLayer;
                 highlightRenderer.sortingLayerName = config.SortingLayerName;
-                highlightRenderer.sortingOrder = config.SortingOrder + 5;
+                highlightRenderer.sortingOrder = config.SortingOrder + HighlightSortingOrderOffset;
             }
 
             for (int quadrantIndex = 0; quadrantIndex < IceShieldState.PetalsPerShield; quadrantIndex++)
@@ -532,7 +565,7 @@ internal sealed class IceShieldDisplay
 
                 petalRenderer.gameObject.layer = config.HudLayer;
                 petalRenderer.sortingLayerName = config.SortingLayerName;
-                petalRenderer.sortingOrder = config.SortingOrder + 4;
+                petalRenderer.sortingOrder = config.SortingOrder + PetalSortingOrderOffset;
             }
         }
     }
@@ -540,8 +573,8 @@ internal sealed class IceShieldDisplay
     private static bool TryGetHealthHudRenderConfig(Camera hudCamera, Transform root, out HudRenderConfig config)
     {
         config = new HudRenderConfig(DefaultHudLayer, DefaultHudSortingLayerName, DefaultHudSortingOrder);
-        if (!TryGetRightmostHudRenderer(hudCamera, root, requireHealthKeyword: true, out Renderer? bestRenderer) &&
-            !TryGetRightmostHudRenderer(hudCamera, root, requireHealthKeyword: false, out bestRenderer))
+        if (!TryGetFirstHealthMaskRenderer(hudCamera, root, requireHealthKeyword: true, out Renderer? bestRenderer) &&
+            !TryGetFirstHealthMaskRenderer(hudCamera, root, requireHealthKeyword: false, out bestRenderer))
         {
             return false;
         }
@@ -581,10 +614,16 @@ internal sealed class IceShieldDisplay
         return found;
     }
 
-    private static Vector3 GetQuadrantLocalPosition(int quadrantIndex)
+    private static Vector3 GetQuadrantLocalPosition(int quadrantIndex, float phase = 0f, float fill = 1f)
     {
         Vector2 direction = QuadrantDirections[quadrantIndex];
-        return new Vector3(direction.x * QuadrantLocalSpreadX, direction.y * QuadrantLocalSpreadY, 0f);
+        float spreadScale = Mathf.Lerp(0.9f, 1f, fill);
+        float driftX = Mathf.Sin(phase) * QuadrantMotionAmplitudeX;
+        float driftY = Mathf.Cos((phase * 0.94f) + 0.35f) * QuadrantMotionAmplitudeY;
+        return new Vector3(
+            (direction.x * QuadrantLocalSpreadX * spreadScale) + (direction.x * driftX),
+            (direction.y * QuadrantLocalSpreadY * spreadScale) + (direction.y * driftY),
+            0f);
     }
 
     private static bool TryCreateHudRenderConfig(Renderer? renderer, out HudRenderConfig config)
@@ -1228,32 +1267,32 @@ internal sealed class IceShieldDisplay
         float minChannel = Mathf.Min(sourceColor.r, Mathf.Min(sourceColor.g, sourceColor.b));
         float contrast = maxChannel - minChannel;
 
-        Color abyssIce = new(0.05f, 0.11f, 0.29f, 1f);
-        Color deepIce = new(0.08f, 0.2f, 0.48f, 1f);
-        Color bodyIce = new(0.18f, 0.48f, 0.78f, 1f);
-        Color crystalIce = new(0.42f, 0.76f, 0.95f, 1f);
-        Color frostIce = new(0.88f, 0.97f, 1f, 1f);
+        Color abyssIce = new(0.14f, 0.28f, 0.58f, 1f);
+        Color deepIce = new(0.24f, 0.48f, 0.88f, 1f);
+        Color bodyIce = new(0.4f, 0.74f, 1f, 1f);
+        Color crystalIce = new(0.62f, 0.91f, 1f, 1f);
+        Color frostIce = new(0.9f, 0.98f, 1f, 1f);
         Color brightFrost = new(1f, 1f, 1f, 1f);
 
-        float baseMix = Mathf.Clamp01((luminance * 0.36f) + (contrast * 0.14f) + (shellFactor * 0.18f) + (distortionLikeFactor * 0.04f));
+        float baseMix = Mathf.Clamp01((luminance * 0.41f) + (contrast * 0.22f) + (shellFactor * 0.22f) + (distortionLikeFactor * 0.08f));
         Color baseColor = Color.Lerp(abyssIce, deepIce, Mathf.SmoothStep(0.02f, 0.4f, baseMix));
 
-        float bodyMask = Mathf.SmoothStep(0.38f, 0.82f, facetLightingFactor + (shellFactor * 0.06f) + (luminance * 0.08f));
-        baseColor = Color.Lerp(baseColor, bodyIce, bodyMask * 0.88f);
+        float bodyMask = Mathf.SmoothStep(0.24f, 0.76f, facetLightingFactor + (shellFactor * 0.1f) + (luminance * 0.16f));
+        baseColor = Color.Lerp(baseColor, bodyIce, bodyMask * 1f);
 
-        float crystalMask = Mathf.SmoothStep(0.68f, 0.94f, facetLightingFactor + (edgeRimFactor * 0.08f) + (facetHighlightFactor * 0.12f));
-        baseColor = Color.Lerp(baseColor, crystalIce, crystalMask * 0.52f);
+        float crystalMask = Mathf.SmoothStep(0.54f, 0.86f, facetLightingFactor + (edgeRimFactor * 0.08f) + (facetHighlightFactor * 0.12f));
+        baseColor = Color.Lerp(baseColor, crystalIce, crystalMask * 0.72f);
 
-        float frostMask = Mathf.SmoothStep(0.82f, 0.995f, facetLightingFactor + (facetHighlightFactor * 0.42f) + (edgeRimFactor * 0.08f));
-        baseColor = Color.Lerp(baseColor, frostIce, frostMask * 0.34f);
+        float frostMask = Mathf.SmoothStep(0.84f, 0.995f, facetLightingFactor + (facetHighlightFactor * 0.3f) + (edgeRimFactor * 0.06f));
+        baseColor = Color.Lerp(baseColor, frostIce, frostMask * 0.24f);
 
         float rimBlend = Mathf.SmoothStep(0.62f, 0.98f, edgeRimFactor) * Mathf.SmoothStep(0.52f, 0.94f, facetLightingFactor + 0.12f);
-        baseColor = Color.Lerp(baseColor, brightFrost, (rimBlend * 0.2f) + (facetHighlightFactor * 0.24f));
+        baseColor = Color.Lerp(baseColor, brightFrost, (rimBlend * 0.09f) + (facetHighlightFactor * 0.1f));
 
         float shadowBlend = Mathf.Clamp01(((1f - facetLightingFactor) * 0.72f) + ((1f - luminance) * 0.08f) + (Mathf.SmoothStep(0.08f, 0.68f, shellFactor) * 0.08f) - (facetHighlightFactor * 0.18f));
-        baseColor = Color.Lerp(baseColor, abyssIce, shadowBlend * 0.38f);
+        baseColor = Color.Lerp(baseColor, abyssIce, shadowBlend * 0.22f);
 
-        float coolDepth = Mathf.SmoothStep(0.14f, 0.9f, edgeFactor) * (1f - rimBlend) * 0.18f;
+        float coolDepth = Mathf.SmoothStep(0.14f, 0.9f, edgeFactor) * (1f - rimBlend) * 0.11f;
         baseColor = Color.Lerp(baseColor, deepIce, coolDepth);
         baseColor.a = 1f;
         return baseColor;
@@ -1353,8 +1392,9 @@ internal sealed class IceShieldDisplay
                 float distance = Mathf.Sqrt((nx * nx) + (ny * ny));
                 float outerHalo = Mathf.Clamp01(1f - Mathf.Abs(distance - 0.8f) * 3.2f);
                 float softHaze = Mathf.Clamp01(1f - Mathf.Abs(distance - 0.68f) * 4.1f);
-                float alpha = (outerHalo * 0.1f) + (softHaze * 0.03f);
-                texture.SetPixel(x, y, new Color(0.72f, 0.93f, 1f, alpha));
+                float rimBloom = Mathf.Clamp01(1f - Mathf.Abs(distance - 0.9f) * 9.6f);
+                float alpha = (outerHalo * 0.09f) + (softHaze * 0.024f) + (rimBloom * 0.07f);
+                texture.SetPixel(x, y, new Color(0.88f, 0.98f, 1f, alpha));
             }
         }
 
@@ -1385,27 +1425,31 @@ internal sealed class IceShieldDisplay
                 float distance = Mathf.Sqrt((nx * nx) + (ny * ny));
                 float angle = Mathf.Atan2(ny, nx);
                 float boundaryRadius =
-                    0.68f +
-                    (Mathf.Sin((angle * 3.2f) + 0.18f) * 0.026f) +
-                    (Mathf.Sin((angle * 7.4f) - 0.42f) * 0.03f) +
-                    (Mathf.Cos((angle * 10.8f) + 0.94f) * 0.018f);
-                float innerRadius = boundaryRadius - (0.06f + (Mathf.Sin((angle * 5.4f) + (distance * 5.8f)) * 0.01f));
-                float edgeHuggingBand = Mathf.Clamp01(1f - Mathf.Abs(distance - boundaryRadius) * 18.6f);
-                float outerWispBandA = Mathf.Clamp01(1f - Mathf.Abs(distance - (boundaryRadius + 0.056f + (Mathf.Sin((angle * 4.8f) - 0.2f) * 0.018f))) * 10.4f);
-                float outerWispBandB = Mathf.Clamp01(1f - Mathf.Abs(distance - (boundaryRadius + 0.104f + (Mathf.Cos((angle * 6.2f) + 0.36f) * 0.024f))) * 8.8f);
-                float outerSprayBand = Mathf.Clamp01(1f - Mathf.Abs(distance - (boundaryRadius + 0.15f + (Mathf.Sin((angle * 9.2f) + 0.44f) * 0.022f))) * 7.2f);
-                float interiorSuppression = Mathf.SmoothStep(innerRadius - 0.012f, innerRadius + 0.05f, distance);
-                float outerFade = 1f - Mathf.SmoothStep(boundaryRadius + 0.15f, boundaryRadius + 0.28f, distance);
+                    0.664f +
+                    (Mathf.Sin((angle * 3.4f) + 0.16f) * 0.022f) +
+                    (Mathf.Sin((angle * 7.8f) - 0.38f) * 0.022f) +
+                    (Mathf.Cos((angle * 11.4f) + 0.9f) * 0.014f);
+                float innerRadius = boundaryRadius - (0.042f + (Mathf.Sin((angle * 5.8f) + (distance * 6.2f)) * 0.008f));
+                float edgeCoreBand = Mathf.Clamp01(1f - Mathf.Abs(distance - boundaryRadius) * 24.6f);
+                float edgeFeatherBand = Mathf.Clamp01(1f - Mathf.Abs(distance - (boundaryRadius + 0.028f + (Mathf.Sin((angle * 5.2f) - 0.18f) * 0.012f))) * 16.8f);
+                float outerWispBandA = Mathf.Clamp01(1f - Mathf.Abs(distance - (boundaryRadius + 0.064f + (Mathf.Sin((angle * 4.6f) - 0.2f) * 0.014f))) * 12.8f);
+                float outerWispBandB = Mathf.Clamp01(1f - Mathf.Abs(distance - (boundaryRadius + 0.102f + (Mathf.Cos((angle * 6.4f) + 0.34f) * 0.018f))) * 10.4f);
+                float vaporTailBand = Mathf.Clamp01(1f - Mathf.Abs(distance - (boundaryRadius + 0.14f + (Mathf.Sin((angle * 8.8f) + 0.4f) * 0.018f))) * 8.4f);
+                float interiorSuppression = Mathf.SmoothStep(innerRadius - 0.008f, innerRadius + 0.026f, distance);
+                float outerFade = 1f - Mathf.SmoothStep(boundaryRadius + 0.14f, boundaryRadius + 0.24f, distance);
                 float wispNoise = 0.5f + (0.5f * Mathf.Sin((angle * 8.6f) - (distance * 13.4f) + 0.24f));
                 float secondaryNoise = 0.5f + (0.5f * Mathf.Cos((angle * 12.8f) + (distance * 9.4f) - 0.68f));
-                float upperDrift = Mathf.Clamp01((ny + 0.18f) * 0.88f);
-                float lightFacingBias = Mathf.Clamp01(((-nx * 0.48f) + (ny * 1.08f) + 0.26f) * 0.7f);
+                float upperDrift = Mathf.Clamp01((ny + 0.14f) * 0.94f);
+                float lightFacingBias = Mathf.Clamp01(((-nx * 0.46f) + (ny * 1.08f) + 0.28f) * 0.72f);
+                float topCrestBand = Mathf.Clamp01(1f - Mathf.Abs(distance - (boundaryRadius + 0.048f)) * 9.2f) * Mathf.Clamp01((ny + 0.16f) * 0.96f);
                 float alpha = interiorSuppression * outerFade * (
-                    (edgeHuggingBand * (0.048f + (wispNoise * 0.026f))) +
-                    (outerWispBandA * (0.072f + (upperDrift * 0.058f) + (lightFacingBias * 0.022f))) +
-                    (outerWispBandB * (0.05f + (upperDrift * 0.05f) + (secondaryNoise * 0.024f))) +
-                    (outerSprayBand * (0.028f + (upperDrift * 0.038f) + (wispNoise * 0.018f))));
-                texture.SetPixel(x, y, new Color(0.8f, 0.97f, 1f, alpha));
+                    (edgeCoreBand * (0.082f + (wispNoise * 0.032f))) +
+                    (edgeFeatherBand * (0.066f + (lightFacingBias * 0.026f) + (secondaryNoise * 0.014f))) +
+                    (outerWispBandA * (0.072f + (upperDrift * 0.064f) + (lightFacingBias * 0.024f))) +
+                    (outerWispBandB * (0.052f + (upperDrift * 0.048f) + (secondaryNoise * 0.022f))) +
+                    (vaporTailBand * (0.024f + (upperDrift * 0.03f) + (wispNoise * 0.014f))) +
+                    (topCrestBand * (0.038f + (lightFacingBias * 0.018f))));
+                texture.SetPixel(x, y, new Color(0.84f, 0.98f, 1f, alpha));
             }
         }
 
