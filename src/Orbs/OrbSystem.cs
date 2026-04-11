@@ -161,6 +161,23 @@ internal sealed class OrbSystem
         AdvanceRound(hero, RoundAdvanceSource.HeroTookDamage, $"hazardType={hazardType}, damageAmount={damageAmount}");
     }
 
+    public void OnHeroTookShieldedDamage(int hazardType, int damageAmount)
+    {
+        if (!CanProcess() || !ShouldAdvanceRoundFromHeroDamage(hazardType, damageAmount))
+        {
+            return;
+        }
+
+        HeroController? hero = _getHero();
+        if (hero == null)
+        {
+            return;
+        }
+
+        RestoreRuntimeIfNeeded(hero);
+        AdvanceRound(hero, RoundAdvanceSource.HeroTookDamage, $"hazardType={hazardType}, shieldedDamageAmount={damageAmount}", triggerIceOrbPassives: false);
+    }
+
     public void OnHeroNailParry(HeroController hero)
     {
         if (!CanProcess() || hero == null)
@@ -336,7 +353,7 @@ internal sealed class OrbSystem
         return _persistentState;
     }
 
-    private void TriggerPassiveOrbs(HeroController hero)
+    private void TriggerPassiveOrbs(HeroController hero, bool triggerIceOrbPassives = true)
     {
         if (!_runtime.HasAnyActiveOrb())
         {
@@ -347,6 +364,11 @@ internal sealed class OrbSystem
         List<OrbInstance> activeOrbs = new(_runtime.EnumerateActiveOrbs());
         for (int i = 0; i < activeOrbs.Count; i++)
         {
+            if (!triggerIceOrbPassives && activeOrbs[i].TypeId == OrbTypeId.Black)
+            {
+                continue;
+            }
+
             activeOrbs[i].Definition.OnPassive(context, activeOrbs[i]);
         }
 
@@ -409,12 +431,12 @@ internal sealed class OrbSystem
         return CanProcess() && _getHero() != null && CanGenerateOrbForSpell(orbType);
     }
 
-    private void AdvanceRound(HeroController hero, RoundAdvanceSource source, string? debugDetail = null)
+    private void AdvanceRound(HeroController hero, RoundAdvanceSource source, string? debugDetail = null, bool triggerIceOrbPassives = true)
     {
         _roundCounter++;
         string detailSuffix = string.IsNullOrEmpty(debugDetail) ? string.Empty : $" ({debugDetail})";
         _logDebug($"Advanced round {_roundCounter} via {source}{detailSuffix}.");
-        TriggerPassiveOrbs(hero);
+        TriggerPassiveOrbs(hero, triggerIceOrbPassives);
         _persistentState.ReplaceFromRuntime(_runtime.SnapshotActiveOrbs());
     }
 

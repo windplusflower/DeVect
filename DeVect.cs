@@ -175,6 +175,10 @@ public partial class DeVectMod : Mod, IGlobalSettings<DeVectSettings>, ILocalSet
         {
             _orbSystem?.OnHeroTookDamage(hazardType, finalDamageAmount);
         }
+        else if (damageAmount > 0)
+        {
+            _orbSystem?.OnHeroTookShieldedDamage(hazardType, damageAmount);
+        }
 
         return finalDamageAmount;
     }
