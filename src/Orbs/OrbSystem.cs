@@ -362,14 +362,33 @@ internal sealed class OrbSystem
 
         OrbTriggerContext context = CreateTriggerContext(hero);
         List<OrbInstance> activeOrbs = new(_runtime.EnumerateActiveOrbs());
+        int whiteOrbCount = 0;
+        List<OrbInstance> eligibleOrbs = new();
         for (int i = 0; i < activeOrbs.Count; i++)
         {
-            if (!triggerIceOrbPassives && activeOrbs[i].TypeId == OrbTypeId.Black)
+            OrbInstance orb = activeOrbs[i];
+            if (orb.TypeId == OrbTypeId.White)
+            {
+                whiteOrbCount++;
+                continue;
+            }
+
+            if (!triggerIceOrbPassives && orb.TypeId == OrbTypeId.Black)
             {
                 continue;
             }
 
-            activeOrbs[i].Definition.OnPassive(context, activeOrbs[i]);
+            eligibleOrbs.Add(orb);
+        }
+
+        int triggerCount = 1 + whiteOrbCount;
+        for (int i = 0; i < eligibleOrbs.Count; i++)
+        {
+            OrbInstance orb = eligibleOrbs[i];
+            for (int triggerIndex = 0; triggerIndex < triggerCount; triggerIndex++)
+            {
+                orb.Definition.OnPassive(context, orb);
+            }
         }
 
         for (int i = 0; i < activeOrbs.Count; i++)
@@ -385,13 +404,42 @@ internal sealed class OrbSystem
 
     private void TriggerEvocation(HeroController hero, OrbTypeId spawnType, int initialDamage)
     {
+        List<OrbInstance> preExistingOrbs = new(_runtime.EnumerateActiveOrbs());
+        int whiteOrbCount = 0;
+        for (int i = 0; i < preExistingOrbs.Count; i++)
+        {
+            if (preExistingOrbs[i].TypeId == OrbTypeId.White)
+            {
+                whiteOrbCount++;
+            }
+        }
+
         if (!_runtime.TryForceInsertOrbFromLeft(spawnType, initialDamage, _definitions, out OrbInstance? evictedOrb) || evictedOrb == null)
         {
             return;
         }
 
         _logDebug($"TriggerEvocation -> spawnType={spawnType}, evictedOrb.TypeId={evictedOrb.TypeId}; triggering evocation.");
-        evictedOrb.Definition.OnEvocation(CreateTriggerContext(hero), evictedOrb);
+        OrbTriggerContext context = CreateTriggerContext(hero);
+        if (evictedOrb.TypeId != OrbTypeId.White)
+        {
+            evictedOrb.Definition.OnEvocation(context, evictedOrb);
+            return;
+        }
+
+        for (int i = 0; i < preExistingOrbs.Count; i++)
+        {
+            OrbInstance orb = preExistingOrbs[i];
+            if (ReferenceEquals(orb, evictedOrb) || orb.TypeId == OrbTypeId.White)
+            {
+                continue;
+            }
+
+            for (int triggerIndex = 0; triggerIndex < whiteOrbCount; triggerIndex++)
+            {
+                orb.Definition.OnEvocation(context, orb);
+            }
+        }
     }
 
     private OrbTriggerContext CreateTriggerContext(HeroController hero)
