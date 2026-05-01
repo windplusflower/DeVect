@@ -29,6 +29,7 @@ internal sealed class OrbVisualService
     private const int DashCount = 14;
     private static readonly Color DashColor = new(1f, 1f, 1f, 0.55f);
 
+    private readonly HeroOrbCastAnimationRuntime _heroOrbCastAnimationRuntime = new();
     private readonly List<TransientVisual> _transientVisuals = new();
     private GameObject? _heroAuraRoot;
     private readonly List<Transform> _heroAuraLayerTransforms = new();
@@ -151,6 +152,21 @@ internal sealed class OrbVisualService
         }
 
         return hero.transform.position + new Vector3(0f, HeroChestEffectBaseYOffset + extraYOffset, 0f);
+    }
+
+    public bool TryPlayHeroOrbCastAnimation(HeroController hero)
+    {
+        return _heroOrbCastAnimationRuntime.TryPlay(hero);
+    }
+
+    public float GetHeroOrbCastReleaseDelay(HeroController hero)
+    {
+        return _heroOrbCastAnimationRuntime.GetReleaseDelay(hero);
+    }
+
+    public void TickHeroOrbCastAnimation(HeroController hero, float deltaTime)
+    {
+        _heroOrbCastAnimationRuntime.Tick(hero, deltaTime);
     }
 
     public void TickHeroFormAura(HeroController hero, FormMode formMode, bool visible)
@@ -477,6 +493,7 @@ internal sealed class OrbVisualService
 
     public void DisposeTransientVisuals()
     {
+        _heroOrbCastAnimationRuntime.Cancel();
         for (int i = _transientVisuals.Count - 1; i >= 0; i--)
         {
             if (_transientVisuals[i].Root != null)

@@ -49,6 +49,7 @@ internal sealed class OrbSystem
     private readonly OrbPersistentState _persistentState;
     private readonly IceShieldState _shieldState;
     private readonly Queue<QueuedOrbSpawn> _pendingSpawns = new();
+    private readonly List<PendingOrbRelease> _pendingDelayedSpawns = new();
     private bool _spellFsmInjected;
     private bool _pendingZeroHealthLossDamage;
     private FormMode _currentForm = FormMode.Lightning;
@@ -87,6 +88,8 @@ internal sealed class OrbSystem
 
         RestoreRuntimeIfNeeded(hero);
         TickSpawnQueue(hero, deltaTime);
+        TickDelayedSpawns(hero, deltaTime);
+        _visualService.TickHeroOrbCastAnimation(hero, deltaTime);
         _runtime.TickFollow();
         _runtime.TickAnimations(deltaTime);
         _iceShieldDisplay.Tick(_shieldState.GetPetalCount());
@@ -222,7 +225,7 @@ internal sealed class OrbSystem
 
     public bool IsAttackLocked()
     {
-        return _pendingSpawns.Count > 0;
+        return _pendingSpawns.Count > 0 || _pendingDelayedSpawns.Count > 0;
     }
 
     public int GetShamanStoneBonusFromNailDamage()
@@ -247,6 +250,7 @@ internal sealed class OrbSystem
         _runtime.Dispose();
         _persistentState.Clear();
         _pendingSpawns.Clear();
+        _pendingDelayedSpawns.Clear();
         _spawnQueueTimer = 0f;
         _roomGeneratedLightningOrbCount = 0;
         _spellFsmInjected = false;
@@ -260,6 +264,7 @@ internal sealed class OrbSystem
         _spawnQueueTimer = 0f;
         _roomGeneratedLightningOrbCount = 0;
         _pendingSpawns.Clear();
+        _pendingDelayedSpawns.Clear();
         _combatService.DisposeDebugVisuals();
         _iceShieldDisplay.Dispose();
         _visualService.ClearHeroFormAura();
@@ -274,6 +279,7 @@ internal sealed class OrbSystem
         _spawnQueueTimer = 0f;
         _roomGeneratedLightningOrbCount = 0;
         _pendingSpawns.Clear();
+        _pendingDelayedSpawns.Clear();
         _shieldState.Clear();
         _combatService.DisposeDebugVisuals();
         _iceShieldDisplay.Dispose();
@@ -284,6 +290,7 @@ internal sealed class OrbSystem
     public void ClearGeneratedOrbs()
     {
         _pendingSpawns.Clear();
+        _pendingDelayedSpawns.Clear();
         _spawnQueueTimer = 0f;
         _persistentState.Clear();
         _runtime.Dispose();
@@ -319,14 +326,13 @@ internal sealed class OrbSystem
         return playerData != null && HasUnlockedSpellForOrb(playerData, orbType);
     }
 
-    private void HandleSpellCast(OrbTypeId spawnType)
+    private void HandleSpellCast(HeroController hero, OrbTypeId spawnType)
     {
         if (!CanProcess())
         {
             return;
         }
 
-        HeroController? hero = _getHero();
         if (hero == null || !CanGenerateOrbForSpell(spawnType))
         {
             return;
@@ -398,7 +404,13 @@ internal sealed class OrbSystem
         _spawnQueueTimer -= deltaTime;
         while (_pendingSpawns.Count > 0 && _spawnQueueTimer <= 0f)
         {
-            TryProcessNextQueuedSpawn();
+            bool queuedDelayedSpawn = TryProcessNextQueuedSpawn(hero);
+            if (queuedDelayedSpawn)
+            {
+                _spawnQueueTimer += SpawnIntervalSeconds;
+                continue;
+            }
+
             if (_pendingSpawns.Count > 0)
             {
                 _spawnQueueTimer += SpawnIntervalSeconds;
@@ -410,16 +422,71 @@ internal sealed class OrbSystem
         }
     }
 
-    private bool TryProcessNextQueuedSpawn()
+    private bool TryProcessNextQueuedSpawn(HeroController hero)
     {
-        if (_pendingSpawns.Count <= 0)
+        if (_pendingSpawns.Count <= 0 || hero == null)
         {
             return false;
         }
 
         QueuedOrbSpawn queuedSpawn = _pendingSpawns.Dequeue();
-        HandleSpellCast(queuedSpawn.OrbType);
+        bool playedCastAnimation = _visualService.TryPlayHeroOrbCastAnimation(hero);
+        if (!playedCastAnimation)
+        {
+            HandleSpellCast(hero, queuedSpawn.OrbType);
+            return false;
+        }
+
+        float releaseDelay = _visualService.GetHeroOrbCastReleaseDelay(hero);
+        if (releaseDelay <= 0f)
+        {
+            HandleSpellCast(hero, queuedSpawn.OrbType);
+            return false;
+        }
+
+        _pendingDelayedSpawns.Add(new PendingOrbRelease(queuedSpawn.OrbType, releaseDelay));
         return true;
+    }
+
+    private void TickDelayedSpawns(HeroController hero, float deltaTime)
+    {
+        if (_pendingDelayedSpawns.Count <= 0 || hero == null)
+        {
+            return;
+        }
+
+        float clampedDeltaTime = Mathf.Max(0f, deltaTime);
+        for (int i = 0; i < _pendingDelayedSpawns.Count; i++)
+        {
+            PendingOrbRelease pendingRelease = _pendingDelayedSpawns[i];
+            pendingRelease.RemainingDelaySeconds -= clampedDeltaTime;
+            _pendingDelayedSpawns[i] = pendingRelease;
+        }
+
+        for (int i = _pendingDelayedSpawns.Count - 1; i >= 0; i--)
+        {
+            PendingOrbRelease pendingRelease = _pendingDelayedSpawns[i];
+            if (pendingRelease.RemainingDelaySeconds > 0f)
+            {
+                continue;
+            }
+
+            _pendingDelayedSpawns.RemoveAt(i);
+            HandleSpellCast(hero, pendingRelease.OrbType);
+        }
+    }
+
+    private struct PendingOrbRelease
+    {
+        public PendingOrbRelease(OrbTypeId orbType, float remainingDelaySeconds)
+        {
+            OrbType = orbType;
+            RemainingDelaySeconds = remainingDelaySeconds;
+        }
+
+        public OrbTypeId OrbType { get; }
+
+        public float RemainingDelaySeconds { get; set; }
     }
 
     private OrbTypeId GetOrbTypeForCurrentForm()
