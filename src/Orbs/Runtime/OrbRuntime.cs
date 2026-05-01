@@ -9,12 +9,12 @@ namespace DeVect.Orbs.Runtime;
 
 internal sealed class OrbRuntime
 {
-    private static readonly Vector3 RootOffset = new(0f, 0.1f, 0f);
+    private static readonly Vector3 RootOffset = new(0f, -0.15f, 0f);
 
     private const float SlotFanRadius = 1.62f;
     private const float SlotFanCenterAngleDeg = 90f;
-    private const float ThreeSlotSpreadDeg = 76f;
-    private const float FourSlotSpreadDeg = 102f;
+    private const float ThreeSlotSpreadDeg = 120f;
+    private const float FourSlotSpreadDeg = 120f;
     private const float OrbScale = 0.42f;
     private const float EvictedOrbScale = 0.42f;
     internal const float SlotMoveDurationSeconds = 0.2f;
