@@ -17,6 +17,7 @@ internal sealed class OrbVisualService
     private const float PassiveLightningLifetime = 0.5f;
     private const float EvocationLightningWorldWidth = 4.48f;
     private const float EvocationLightningLifetime = 0.8f;
+    private const float CachedLightningSpriteWorldHeight = 6f;
     private const float VoidImpactBloomLifetime = 0.24f;
     private const float VoidImpactRiftLifetime = 0.42f;
     private const float VoidImpactWispLifetime = 0.34f;
@@ -47,6 +48,8 @@ internal sealed class OrbVisualService
     private static Sprite? _refractionRingSprite;
     private static Sprite? _glassFlashSprite;
     private static Sprite? _lightningImpactSprite;
+    private static Sprite? _passiveLightningSprite;
+    private static Sprite? _evocationLightningSprite;
     private static Sprite? _iceOrbSprite;
     private static Sprite? _icePetalSprite;
     private static Sprite? _iceBloomSprite;
@@ -117,12 +120,13 @@ internal sealed class OrbVisualService
         lightning.transform.rotation = Quaternion.identity;
 
         SpriteRenderer renderer = lightning.AddComponent<SpriteRenderer>();
-        renderer.sprite = CreateLightningSprite(profile, spriteWorldHeight);
+        renderer.sprite = CreateLightningSprite(profile);
         renderer.color = profile.BeamTint;
         renderer.sortingLayerName = "HUD";
         renderer.sortingOrder = 12;
         float spriteWorldWidth = Mathf.Max(0.01f, renderer.sprite.bounds.size.x);
-        lightning.transform.localScale = new Vector3(profile.BeamWorldWidth / spriteWorldWidth, 1f, 1f);
+        float spriteWorldHeightBase = Mathf.Max(0.01f, renderer.sprite.bounds.size.y);
+        lightning.transform.localScale = new Vector3(profile.BeamWorldWidth / spriteWorldWidth, spriteWorldHeight / spriteWorldHeightBase, 1f);
 
         _transientVisuals.Add(new TransientVisual(lightning, renderer, profile.Lifetime, Vector3.up * profile.DriftVelocity, renderer.color, lightning.transform.localScale));
 
@@ -1584,12 +1588,32 @@ internal sealed class OrbVisualService
         return _iceCrystalSprite;
     }
 
-    private static Sprite CreateLightningSprite(LightningVisualProfile profile, float spriteWorldHeight)
+    private static Sprite CreateLightningSprite(LightningVisualProfile profile)
     {
-        Texture2D texture = CreateLightningTexture(profile, spriteWorldHeight);
+        if (profile.IsEvocation && _evocationLightningSprite != null)
+        {
+            return _evocationLightningSprite;
+        }
+
+        if (!profile.IsEvocation && _passiveLightningSprite != null)
+        {
+            return _passiveLightningSprite;
+        }
+
+        Texture2D texture = CreateLightningTexture(profile, CachedLightningSpriteWorldHeight);
         float pivotY = Mathf.Clamp01(profile.ImpactHeightNormalized);
         Sprite sprite = Sprite.Create(texture, new Rect(0f, 0f, texture.width, texture.height), new Vector2(0.5f, pivotY), LightningPixelsPerUnit);
         sprite.name = profile.IsEvocation ? "DeVect_LightningSprite_Evocation" : "DeVect_LightningSprite_Passive";
+
+        if (profile.IsEvocation)
+        {
+            _evocationLightningSprite = sprite;
+        }
+        else
+        {
+            _passiveLightningSprite = sprite;
+        }
+
         return sprite;
     }
 

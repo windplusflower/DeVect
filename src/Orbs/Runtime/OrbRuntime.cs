@@ -17,10 +17,9 @@ internal sealed class OrbRuntime
     private const float FourSlotSpreadDeg = 102f;
     private const float OrbScale = 0.42f;
     private const float EvictedOrbScale = 0.42f;
-    private const float SlotMoveDuration = 0.14f;
+    internal const float SlotMoveDurationSeconds = 0.14f;
     private const float SpawnEntryDuration = 0.16f;
     private const float EvictedOrbLifetime = 0.2f;
-    private const float SpawnEntryAngleOffsetDeg = 24f;
     private const float EvictedOrbExitAngleOffsetDeg = -28f;
 
     private readonly OrbVisualService _visualService;
@@ -110,15 +109,18 @@ internal sealed class OrbRuntime
 
                 if (slot.MoveLerpT < 1f)
                 {
-                    float duration = slot.MotionDuration > 0f ? slot.MotionDuration : SlotMoveDuration;
+                    float duration = slot.MotionDuration > 0f ? slot.MotionDuration : SlotMoveDurationSeconds;
                     slot.MoveLerpT = Mathf.Min(1f, slot.MoveLerpT + (deltaTime / duration));
                     float eased = Mathf.SmoothStep(0f, 1f, slot.MoveLerpT);
-                    slot.Occupant.Renderer.transform.localPosition = EvaluateCircularArcPosition(slot.CurrentAngleDeg, slot.TargetAngleDeg, slot.MotionRadius, eased);
+                    slot.Occupant.Renderer.transform.localPosition = slot.UseLinearMotion
+                        ? Vector3.Lerp(slot.CurrentLocalPosition, slot.TargetLocalPosition, eased)
+                        : EvaluateCircularArcPosition(slot.CurrentAngleDeg, slot.TargetAngleDeg, slot.MotionRadius, eased);
                     if (slot.MoveLerpT >= 1f)
                     {
                         slot.Occupant.Renderer.transform.localPosition = slot.TargetLocalPosition;
                         slot.CurrentLocalPosition = slot.TargetLocalPosition;
                         slot.CurrentAngleDeg = slot.TargetAngleDeg;
+                        slot.UseLinearMotion = false;
                     }
                 }
             }
@@ -221,13 +223,13 @@ internal sealed class OrbRuntime
             OrbInstance movingInstance = fromSlot.Occupant;
             fromSlot.Clear();
             RefreshSlotVisual(fromSlot);
-            AssignInstanceToSlot(_slots[slotIndex + 1], movingInstance, slotIndex + 1, SlotMoveDuration);
+            AssignInstanceToSlot(_slots[slotIndex + 1], movingInstance, slotIndex + 1, SlotMoveDurationSeconds);
         }
 
         IOrbDefinition newDefinition = definitions.Get(newTypeId);
         SpriteRenderer newRenderer = _visualService.CreateOrbRenderer($"DeVect_{newDefinition.DisplayName}Orb_Inserted", newTypeId, newDefinition.OrbColor);
         newRenderer.transform.SetParent(_root.transform, false);
-        newRenderer.transform.localPosition = EvaluateArcPoint(GetSpawnEntryStartAngleDeg(0), SlotFanRadius);
+        newRenderer.transform.localPosition = GetSpawnEntryStartLocalPosition();
         newRenderer.transform.localScale = new Vector3(OrbScale, OrbScale, 1f);
 
         OrbSlotRuntime leftmostSlot = _slots[0];
@@ -317,7 +319,7 @@ internal sealed class OrbRuntime
         slot.CurrentAngleDeg = GetSlotAngleDeg(slotIndex, Capacity);
         slot.TargetAngleDeg = slot.CurrentAngleDeg;
         slot.MotionRadius = SlotFanRadius;
-        slot.MotionDuration = SlotMoveDuration;
+        slot.MotionDuration = SlotMoveDurationSeconds;
         if (_suppressSpawnEntryAnimation)
         {
             slot.MoveLerpT = 1f;
@@ -346,7 +348,7 @@ internal sealed class OrbRuntime
             OrbInstance movingInstance = fromSlot.Occupant;
             fromSlot.Clear();
             RefreshSlotVisual(fromSlot);
-            AssignInstanceToSlot(_slots[slotIndex + 1], movingInstance, slotIndex + 1, SlotMoveDuration);
+            AssignInstanceToSlot(_slots[slotIndex + 1], movingInstance, slotIndex + 1, SlotMoveDurationSeconds);
         }
 
         for (int i = 0; i < _slots.Count; i++)
@@ -381,11 +383,6 @@ internal sealed class OrbRuntime
         SetDashedRingVisible(slot, !slot.IsOccupied);
     }
 
-    private float GetSpawnEntryStartAngleDeg(int slotIndex)
-    {
-        return GetSlotAngleDeg(slotIndex, Capacity) + SpawnEntryAngleOffsetDeg;
-    }
-
     private void StartSpawnEntry(OrbSlotRuntime slot, int slotIndex)
     {
         if (slot.Occupant == null)
@@ -393,17 +390,17 @@ internal sealed class OrbRuntime
             return;
         }
 
-        float startAngle = GetSpawnEntryStartAngleDeg(slotIndex);
         float targetAngle = GetSlotAngleDeg(slotIndex, Capacity);
-        Vector3 start = EvaluateArcPoint(startAngle, SlotFanRadius);
+        Vector3 start = GetSpawnEntryStartLocalPosition();
         slot.Occupant.Renderer.transform.localPosition = start;
         slot.CurrentLocalPosition = start;
         slot.TargetLocalPosition = _slotLocalPositions[slotIndex];
-        slot.CurrentAngleDeg = startAngle;
+        slot.CurrentAngleDeg = GetAngleDegFromPosition(start);
         slot.TargetAngleDeg = targetAngle;
         slot.MotionRadius = SlotFanRadius;
         slot.MotionDuration = SpawnEntryDuration;
         slot.MoveLerpT = 0f;
+        slot.UseLinearMotion = true;
     }
 
     private static Vector3[] BuildSlotLocalPositions(int capacity)
@@ -466,6 +463,43 @@ internal sealed class OrbRuntime
         slot.MotionRadius = SlotFanRadius;
         slot.MotionDuration = duration;
         slot.MoveLerpT = 0f;
+        slot.UseLinearMotion = false;
+    }
+
+    private Vector3 GetSpawnEntryStartLocalPosition()
+    {
+        if (_root == null || _heroTransform == null)
+        {
+            return new Vector3(-0.32f, 0.7f, 0f);
+        }
+
+        if (TryGetHeroBodyBounds(_heroTransform, out Bounds bounds))
+        {
+            Vector3 worldPosition = new(bounds.min.x, bounds.max.y, _root.transform.position.z);
+            return _root.transform.InverseTransformPoint(worldPosition);
+        }
+
+        return new Vector3(-0.32f, 0.7f, 0f);
+    }
+
+    private static bool TryGetHeroBodyBounds(Transform heroTransform, out Bounds bounds)
+    {
+        Collider2D? heroCollider = heroTransform.GetComponent<Collider2D>();
+        if (heroCollider != null && heroCollider.enabled)
+        {
+            bounds = heroCollider.bounds;
+            return true;
+        }
+
+        Renderer? heroRenderer = heroTransform.GetComponent<Renderer>();
+        if (heroRenderer != null && heroRenderer.enabled)
+        {
+            bounds = heroRenderer.bounds;
+            return true;
+        }
+
+        bounds = default;
+        return false;
     }
 
     private void StartEvictedOrbAnimation(SpriteRenderer renderer)

@@ -37,6 +37,8 @@ internal sealed class OrbSlotRuntime
 
     public float MoveLerpT { get; set; }
 
+    public bool UseLinearMotion { get; set; }
+
     public bool IsOccupied => Occupant != null;
 
     public void Clear()
@@ -50,5 +52,6 @@ internal sealed class OrbSlotRuntime
         MotionRadius = resetPosition.magnitude;
         MotionDuration = 0f;
         MoveLerpT = 1f;
+        UseLinearMotion = false;
     }
 }

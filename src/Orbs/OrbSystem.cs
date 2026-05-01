@@ -33,7 +33,7 @@ internal readonly struct HeroDamageInterceptionResult
 
 internal sealed class OrbSystem
 {
-    private const float SpawnIntervalSeconds = 0.2f;
+    private const float SpawnIntervalSeconds = OrbRuntime.SlotMoveDurationSeconds;
 
     private readonly Func<bool> _isEnabled;
     private readonly Func<bool> _isShuttingDown;
