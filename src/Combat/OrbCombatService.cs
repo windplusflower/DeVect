@@ -9,10 +9,10 @@ internal sealed class OrbCombatService
     private static readonly bool DrawEnemySearchDebugBox = false;
     private const float EnemySearchDebugDuration = 0.12f;
     private const bool UseStrictTargetDistanceFilter = true;
-    private const float EnemySearchLeftRange = 15f;
-    private const float EnemySearchRightRange = 15f;
-    private const float EnemySearchUpRange = 15f;
-    private const float EnemySearchDownRange = 5f;
+    private const float EnemySearchLeftRange = 20f;
+    private const float EnemySearchRightRange = 20f;
+    private const float EnemySearchUpRange = 20f;
+    private const float EnemySearchDownRange = 20f;
     private static readonly Color EnemySearchDebugColor = new(1f, 0.1f, 0.1f, 1f);
     private static readonly Vector2 EnemySearchBoxSize = new(EnemySearchLeftRange + EnemySearchRightRange, EnemySearchUpRange + EnemySearchDownRange);
     private static GameObject? _enemySearchDebugRoot;

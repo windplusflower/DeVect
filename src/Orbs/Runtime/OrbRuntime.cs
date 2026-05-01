@@ -17,8 +17,8 @@ internal sealed class OrbRuntime
     private const float FourSlotSpreadDeg = 102f;
     private const float OrbScale = 0.42f;
     private const float EvictedOrbScale = 0.42f;
-    internal const float SlotMoveDurationSeconds = 0.14f;
-    private const float SpawnEntryDuration = 0.16f;
+    internal const float SlotMoveDurationSeconds = 0.2f;
+    private const float SpawnEntryDuration = 0.2f;
     private const float EvictedOrbLifetime = 0.2f;
     private const float EvictedOrbExitAngleOffsetDeg = -28f;
 
