@@ -1,33 +1,33 @@
 using System;
 using HutongGames.PlayMaker;
-using UnityEngine;
 
 namespace DeVect.Fsm;
 
 public sealed class SpellDetectAction : FsmStateAction
 {
-    public Action? OnFireballCast { get; set; }
+    public Action? OnNeutralSpellCast { get; set; }
 
-    public Action? OnDiveCast { get; set; }
+    public Action? OnSmallSkillCast { get; set; }
 
-    public Action? OnShriekCast { get; set; }
+    public Action? OnBigSkillCast { get; set; }
 
-    public Func<bool>? ShouldConsumeFireballSpell { get; set; }
+    public Func<bool>? ShouldHandleNeutralSpell { get; set; }
 
-    public Func<bool>? ShouldConsumeDiveSpell { get; set; }
+    public Func<bool>? ShouldHandleSmallSpell { get; set; }
 
-    public Func<bool>? ShouldConsumeShriekSpell { get; set; }
+    public Func<bool>? ShouldHandleBigSpell { get; set; }
 
     public override void OnEnter()
     {
-        float verticalInput = Input.GetAxisRaw("Vertical");
-        if (verticalInput > 0.1f)
+        HeroActions? inputActions = InputHandler.Instance?.inputActions;
+        bool upPressed = inputActions != null && inputActions.up.IsPressed;
+        bool downPressed = inputActions != null && inputActions.down.IsPressed;
+
+        if (upPressed)
         {
-            bool shouldConsumeShriek = ShouldConsumeShriekSpell?.Invoke() ?? false;
-            if (shouldConsumeShriek)
+            if (ShouldHandleBigSpell?.Invoke() ?? false)
             {
-                OnShriekCast?.Invoke();
-                ConsumeSpellCost();
+                TryHandleSpellCast(OnBigSkillCast, 3);
                 Fsm.Event("FSM CANCEL");
                 Finish();
                 return;
@@ -37,13 +37,11 @@ public sealed class SpellDetectAction : FsmStateAction
             return;
         }
 
-        if (verticalInput < -0.1f)
+        if (downPressed)
         {
-            bool shouldConsumeDive = ShouldConsumeDiveSpell?.Invoke() ?? false;
-            if (shouldConsumeDive)
+            if (ShouldHandleSmallSpell?.Invoke() ?? false)
             {
-                OnDiveCast?.Invoke();
-                ConsumeSpellCost();
+                TryHandleSpellCast(OnSmallSkillCast, 1);
                 Fsm.Event("FSM CANCEL");
                 Finish();
                 return;
@@ -53,32 +51,58 @@ public sealed class SpellDetectAction : FsmStateAction
             return;
         }
 
-        if (verticalInput >= -0.1f)
+        if (ShouldHandleNeutralSpell?.Invoke() ?? false)
         {
-            bool shouldConsumeFireball = ShouldConsumeFireballSpell?.Invoke() ?? false;
-            if (shouldConsumeFireball)
-            {
-                OnFireballCast?.Invoke();
-                ConsumeSpellCost();
-                Fsm.Event("FSM CANCEL");
-                Finish();
-                return;
-            }
+            TryHandleSpellCast(OnNeutralSpellCast, 1);
+            Fsm.Event("FSM CANCEL");
+            Finish();
+            return;
         }
 
         Finish();
     }
 
-    private static void ConsumeSpellCost()
+    private static void TryHandleSpellCast(Action? callback, int costMultiplier)
+    {
+        if (callback != null && HasEnoughSoul(costMultiplier))
+        {
+            callback.Invoke();
+            ConsumeSpellCost(costMultiplier);
+        }
+    }
+
+    private static bool HasEnoughSoul(int costMultiplier)
     {
         PlayerData? playerData = PlayerData.instance;
         if (playerData == null)
         {
+            return false;
+        }
+
+        return Math.Max(0, playerData.GetInt("MPCharge")) >= GetSpellSoulCost(costMultiplier, playerData);
+    }
+
+    private static void ConsumeSpellCost(int costMultiplier)
+    {
+        HeroController? hero = HeroController.instance;
+        PlayerData? playerData = PlayerData.instance;
+        if (playerData == null || hero == null)
+        {
             return;
         }
 
-        bool hasSpellTwister = playerData.GetBool("equippedCharm_33");
-        playerData.TakeMP(hasSpellTwister ? 24 : 33);
-        GameCameras.instance?.soulOrbFSM?.SendEvent("MP LOSE");
+        int totalCost = GetSpellSoulCost(costMultiplier, playerData);
+        if (Math.Max(0, playerData.GetInt("MPCharge")) < totalCost)
+        {
+            return;
+        }
+
+        hero.TakeMP(totalCost);
+    }
+
+    private static int GetSpellSoulCost(int costMultiplier, PlayerData playerData)
+    {
+        int singleCastCost = playerData.GetBool("equippedCharm_33") ? 24 : 33;
+        return singleCastCost * Math.Max(1, costMultiplier);
     }
 }

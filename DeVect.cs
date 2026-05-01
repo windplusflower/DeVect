@@ -47,6 +47,11 @@ public partial class DeVectMod : Mod, IGlobalSettings<DeVectSettings>, ILocalSet
         ModHooks.BeforeSavegameSaveHook += OnBeforeSavegameSave;
         ModHooks.AfterTakeDamageHook += OnHeroAfterTakeDamage;
         On.HeroController.TakeDamage += OnHeroTakeDamage;
+        On.HeroController.DoAttack += OnHeroDoAttack;
+        On.HeroController.Attack += OnHeroAttack;
+        On.HeroController.CanNailArt += OnHeroCanNailArt;
+        On.HeroController.StartCyclone += OnHeroStartCyclone;
+        On.HitTaker.Hit += OnHitTakerHit;
         On.HeroController.NailParry += OnHeroNailParry;
         On.HeroController.HeroDash += OnHeroDashStarted;
         On.HeroController.Dash += OnHeroDashStepped;
@@ -64,6 +69,11 @@ public partial class DeVectMod : Mod, IGlobalSettings<DeVectSettings>, ILocalSet
         ModHooks.BeforeSavegameSaveHook -= OnBeforeSavegameSave;
         ModHooks.AfterTakeDamageHook -= OnHeroAfterTakeDamage;
         On.HeroController.TakeDamage -= OnHeroTakeDamage;
+        On.HeroController.DoAttack -= OnHeroDoAttack;
+        On.HeroController.Attack -= OnHeroAttack;
+        On.HeroController.CanNailArt -= OnHeroCanNailArt;
+        On.HeroController.StartCyclone -= OnHeroStartCyclone;
+        On.HitTaker.Hit -= OnHitTakerHit;
         On.HeroController.NailParry -= OnHeroNailParry;
         On.HeroController.HeroDash -= OnHeroDashStarted;
         On.HeroController.Dash -= OnHeroDashStepped;
@@ -201,6 +211,89 @@ public partial class DeVectMod : Mod, IGlobalSettings<DeVectSettings>, ILocalSet
         _orbSystem?.OnHeroNailParry(self);
     }
 
+    private void OnHeroAttack(On.HeroController.orig_Attack orig, HeroController self, AttackDirection attackDir)
+    {
+        if (!_settings.Enabled || _isShuttingDown || self == null || self != HeroController.instance)
+        {
+            orig(self, attackDir);
+            return;
+        }
+
+        EnsureOrbSystem();
+        if (_orbSystem?.IsAttackLocked() ?? false)
+        {
+            return;
+        }
+
+        orig(self, attackDir);
+    }
+
+    private void OnHeroDoAttack(On.HeroController.orig_DoAttack orig, HeroController self)
+    {
+        if (!_settings.Enabled || _isShuttingDown || self == null || self != HeroController.instance)
+        {
+            orig(self);
+            return;
+        }
+
+        EnsureOrbSystem();
+        if (_orbSystem?.IsAttackLocked() ?? false)
+        {
+            return;
+        }
+
+        orig(self);
+    }
+
+    private void OnHeroStartCyclone(On.HeroController.orig_StartCyclone orig, HeroController self)
+    {
+        if (!_settings.Enabled || _isShuttingDown || self == null || self != HeroController.instance)
+        {
+            orig(self);
+            return;
+        }
+
+        EnsureOrbSystem();
+        if (_orbSystem?.IsAttackLocked() ?? false)
+        {
+            return;
+        }
+
+        orig(self);
+    }
+
+    private bool OnHeroCanNailArt(On.HeroController.orig_CanNailArt orig, HeroController self)
+    {
+        bool result = orig(self);
+        if (!_settings.Enabled || _isShuttingDown || self == null || self != HeroController.instance || !result)
+        {
+            return result;
+        }
+
+        EnsureOrbSystem();
+        return !(_orbSystem?.IsAttackLocked() ?? false);
+    }
+
+    private void OnHitTakerHit(On.HitTaker.orig_Hit orig, GameObject targetGameObject, HitInstance damageInstance, int recursionDepth)
+    {
+        if (!_settings.Enabled || _isShuttingDown)
+        {
+            orig(targetGameObject, damageInstance, recursionDepth);
+            return;
+        }
+
+        HeroController? hero = HeroController.instance;
+        if (hero != null
+            && damageInstance.Source == hero.gameObject
+            && (damageInstance.AttackType == AttackTypes.Nail || damageInstance.AttackType == AttackTypes.NailBeam)
+            && damageInstance.DamageDealt > 1)
+        {
+            damageInstance.DamageDealt = 1;
+        }
+
+        orig(targetGameObject, damageInstance, recursionDepth);
+    }
+
     private void OnHeroDashStarted(On.HeroController.orig_HeroDash orig, HeroController self)
     {
         orig(self);
@@ -332,12 +425,12 @@ public partial class DeVectMod : Mod, IGlobalSettings<DeVectSettings>, ILocalSet
         FsmStateAction[] newActions = new FsmStateAction[state.Actions.Length + 1];
         newActions[0] = new SpellDetectAction
         {
-            OnFireballCast = HandleFireballCast,
-            OnDiveCast = HandleDiveCast,
-            OnShriekCast = HandleShriekCast,
-            ShouldConsumeFireballSpell = ShouldConsumeFireballSpell,
-            ShouldConsumeDiveSpell = ShouldConsumeDiveSpell,
-            ShouldConsumeShriekSpell = ShouldConsumeShriekSpell
+            OnNeutralSpellCast = HandleFireballCast,
+            OnSmallSkillCast = HandleDiveCast,
+            OnBigSkillCast = HandleShriekCast,
+            ShouldHandleNeutralSpell = ShouldConsumeFireballSpell,
+            ShouldHandleSmallSpell = ShouldConsumeDiveSpell,
+            ShouldHandleBigSpell = ShouldConsumeShriekSpell
         };
 
         for (int i = 0; i < state.Actions.Length; i++)

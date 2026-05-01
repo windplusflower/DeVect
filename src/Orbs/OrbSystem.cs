@@ -33,6 +33,8 @@ internal readonly struct HeroDamageInterceptionResult
 
 internal sealed class OrbSystem
 {
+    private const float SpawnIntervalSeconds = 0.2f;
+
     private readonly Func<bool> _isEnabled;
     private readonly Func<bool> _isShuttingDown;
     private readonly Func<int> _getCurrentNailDamage;
@@ -46,11 +48,12 @@ internal sealed class OrbSystem
     private readonly OrbDefinitionRegistry _definitions;
     private readonly OrbPersistentState _persistentState;
     private readonly IceShieldState _shieldState;
-    private int _roundCounter;
-    private bool _parryWindowConsumed;
-    private int _lastShadowDashDodgeAdvanceFrame = -1;
+    private readonly Queue<QueuedOrbSpawn> _pendingSpawns = new();
     private bool _spellFsmInjected;
     private bool _pendingZeroHealthLossDamage;
+    private FormMode _currentForm = FormMode.Lightning;
+    private float _spawnQueueTimer;
+    private int _roomGeneratedLightningOrbCount;
 
     public OrbSystem(OrbSystemDependencies dependencies)
     {
@@ -82,15 +85,12 @@ internal sealed class OrbSystem
             return;
         }
 
-        if (hero.parryInvulnTimer <= 0f)
-        {
-            _parryWindowConsumed = false;
-        }
-
         RestoreRuntimeIfNeeded(hero);
+        TickSpawnQueue(hero, deltaTime);
         _runtime.TickFollow();
         _runtime.TickAnimations(deltaTime);
         _iceShieldDisplay.Tick(_shieldState.GetPetalCount());
+        _visualService.TickHeroFormAura(hero, _currentForm, true);
         _combatService.TickDebugVisuals();
     }
 
@@ -146,24 +146,34 @@ internal sealed class OrbSystem
 
     public void OnHeroTookDamage(int hazardType, int damageAmount)
     {
-        if (!CanProcess() || !ShouldAdvanceRoundFromHeroDamage(hazardType, damageAmount))
-        {
-            return;
-        }
-
-        HeroController? hero = _getHero();
-        if (hero == null)
-        {
-            return;
-        }
-
-        RestoreRuntimeIfNeeded(hero);
-        AdvanceRound(hero, RoundAdvanceSource.HeroTookDamage, $"hazardType={hazardType}, damageAmount={damageAmount}");
     }
 
     public void OnHeroTookShieldedDamage(int hazardType, int damageAmount)
     {
-        if (!CanProcess() || !ShouldAdvanceRoundFromHeroDamage(hazardType, damageAmount))
+    }
+
+    public void OnHeroNailParry(HeroController hero)
+    {
+    }
+
+    public void OnHeroShadowDashDodge(HeroController hero, string? debugDetail = null)
+    {
+    }
+
+    public void OnFireballCast()
+    {
+        HeroController? hero = _getHero();
+        if (hero == null)
+        {
+            return;
+        }
+
+        ToggleForm(hero);
+    }
+
+    public void OnShriekCast()
+    {
+        if (!CanProcess())
         {
             return;
         }
@@ -174,72 +184,45 @@ internal sealed class OrbSystem
             return;
         }
 
-        RestoreRuntimeIfNeeded(hero);
-        AdvanceRound(hero, RoundAdvanceSource.HeroTookDamage, $"hazardType={hazardType}, shieldedDamageAmount={damageAmount}", triggerIceOrbPassives: false);
-    }
-
-    public void OnHeroNailParry(HeroController hero)
-    {
-        if (!CanProcess() || hero == null)
+        if (_currentForm == FormMode.Lightning)
         {
+            EnqueueOrbSpawns(OrbTypeId.Yellow, _roomGeneratedLightningOrbCount);
             return;
         }
 
-        RestoreRuntimeIfNeeded(hero);
-        if (!ShouldAdvanceRoundFromHeroParry(hero))
-        {
-            return;
-        }
-
-        _parryWindowConsumed = true;
-        AdvanceRound(hero, RoundAdvanceSource.HeroNailParry);
-    }
-
-    public void OnHeroShadowDashDodge(HeroController hero, string? debugDetail = null)
-    {
-        if (!CanProcess() || hero == null)
-        {
-            return;
-        }
-
-        RestoreRuntimeIfNeeded(hero);
-        if (!ShouldAdvanceRoundFromHeroShadowDashDodge(hero))
-        {
-            return;
-        }
-
-        _lastShadowDashDodgeAdvanceFrame = Time.frameCount;
-        AdvanceRound(hero, RoundAdvanceSource.HeroShadowDashDodge, debugDetail);
-    }
-
-    public void OnFireballCast()
-    {
-        HandleSpellCast(OrbTypeId.Yellow);
-    }
-
-    public void OnShriekCast()
-    {
-        HandleSpellCast(OrbTypeId.White);
+        List<HealthManager> enemies = _combatService.FindAllEnemiesInRadius(hero, 20f);
+        DealIceBigSkillRoomAoe(hero, enemies, _getCurrentNailDamage());
+        EnqueueOrbSpawns(OrbTypeId.Black, enemies.Count + 2);
     }
 
     public void OnDiveCast()
     {
-        HandleSpellCast(OrbTypeId.Black);
+        if (!CanProcess())
+        {
+            return;
+        }
+
+        EnqueueOrbSpawns(GetOrbTypeForCurrentForm(), 1);
     }
 
     public bool ShouldConsumeFireballSpell()
     {
-        return CanConsumeSpellForOrb(OrbTypeId.Yellow);
+        return CanProcess() && _getHero() != null;
     }
 
     public bool ShouldConsumeDiveSpell()
     {
-        return CanConsumeSpellForOrb(OrbTypeId.Black);
+        return CanProcess() && _getHero() != null && CanGenerateOrbForSpell(GetOrbTypeForCurrentForm());
     }
 
     public bool ShouldConsumeShriekSpell()
     {
-        return CanConsumeSpellForOrb(OrbTypeId.White);
+        return CanProcess() && _getHero() != null && CanGenerateOrbForSpell(GetOrbTypeForCurrentForm());
+    }
+
+    public bool IsAttackLocked()
+    {
+        return _pendingSpawns.Count > 0;
     }
 
     public int GetShamanStoneBonusFromNailDamage()
@@ -254,6 +237,86 @@ internal sealed class OrbSystem
     {
         PlayerData? playerData = PlayerData.instance;
         return playerData != null && HasFlukenest(playerData) ? 4 : 3;
+    }
+
+    public void OnSceneChanged()
+    {
+        _combatService.DisposeDebugVisuals();
+        _iceShieldDisplay.Dispose();
+        _visualService.ClearHeroFormAura();
+        _runtime.Dispose();
+        _persistentState.Clear();
+        _pendingSpawns.Clear();
+        _spawnQueueTimer = 0f;
+        _roomGeneratedLightningOrbCount = 0;
+        _spellFsmInjected = false;
+        _pendingZeroHealthLossDamage = false;
+    }
+
+    public void OnShutdown()
+    {
+        _spellFsmInjected = false;
+        _pendingZeroHealthLossDamage = false;
+        _spawnQueueTimer = 0f;
+        _roomGeneratedLightningOrbCount = 0;
+        _pendingSpawns.Clear();
+        _combatService.DisposeDebugVisuals();
+        _iceShieldDisplay.Dispose();
+        _visualService.ClearHeroFormAura();
+        _runtime.Dispose();
+    }
+
+    public void ResetAll()
+    {
+        _spellFsmInjected = false;
+        _pendingZeroHealthLossDamage = false;
+        _currentForm = FormMode.Lightning;
+        _spawnQueueTimer = 0f;
+        _roomGeneratedLightningOrbCount = 0;
+        _pendingSpawns.Clear();
+        _shieldState.Clear();
+        _combatService.DisposeDebugVisuals();
+        _iceShieldDisplay.Dispose();
+        _visualService.ClearHeroFormAura();
+        _runtime.Dispose();
+    }
+
+    public void ClearGeneratedOrbs()
+    {
+        _pendingSpawns.Clear();
+        _spawnQueueTimer = 0f;
+        _persistentState.Clear();
+        _runtime.Dispose();
+        _logDebug("Cleared all generated orbs on bench save.");
+    }
+
+    public void ClearIceShield()
+    {
+        _shieldState.Clear();
+        _logDebug("Cleared ice shield on bench save/load.");
+    }
+
+    public bool ShouldInjectSpellFsm(PlayMakerFSM fsm, HeroController hero)
+    {
+        return CanProcess() && fsm != null && !_spellFsmInjected && fsm.gameObject == hero.gameObject && fsm.FsmName == "Spell Control";
+    }
+
+    public bool MarkSpellFsmInjected()
+    {
+        _spellFsmInjected = true;
+        return true;
+    }
+
+    public OrbPersistentState SnapshotPersistentState()
+    {
+        _persistentState.ReplaceFromRuntime(_runtime.SnapshotActiveOrbs());
+        return _persistentState;
+    }
+
+    public bool CanGenerateOrbForSpell(OrbTypeId orbType)
+    {
+        PlayerData? playerData = PlayerData.instance;
+        return playerData != null && HasUnlockedSpellForOrb(playerData, orbType);
     }
 
     private void HandleSpellCast(OrbTypeId spawnType)
@@ -282,75 +345,86 @@ internal sealed class OrbSystem
 
         if (_runtime.TrySpawnOrbInNextAvailableSlot(spawnType, initialDamage, _definitions))
         {
+            if (spawnType == OrbTypeId.Yellow)
+            {
+                _roomGeneratedLightningOrbCount++;
+            }
+
             _persistentState.ReplaceFromRuntime(_runtime.SnapshotActiveOrbs());
             _logDebug($"Spawned {spawnType} orb. Filled slots={_persistentState.GetFilledCount()}");
         }
     }
 
-    public void OnSceneChanged()
+    private void ToggleForm(HeroController hero)
     {
-        _combatService.DisposeDebugVisuals();
-        _iceShieldDisplay.Dispose();
-        _runtime.SuspendAndRemember(_persistentState);
-        _parryWindowConsumed = false;
-        _lastShadowDashDodgeAdvanceFrame = -1;
-        _spellFsmInjected = false;
-        _pendingZeroHealthLossDamage = false;
+        if (!CanProcess() || hero == null)
+        {
+            return;
+        }
+
+        RestoreRuntimeIfNeeded(hero);
+        _currentForm = _currentForm == FormMode.Lightning ? FormMode.Ice : FormMode.Lightning;
+        TriggerPassiveOrbs(hero);
+        _persistentState.ReplaceFromRuntime(_runtime.SnapshotActiveOrbs());
     }
 
-    public void OnShutdown()
+    private void EnqueueOrbSpawns(OrbTypeId orbType, int count)
     {
-        _roundCounter = 0;
-        _parryWindowConsumed = false;
-        _lastShadowDashDodgeAdvanceFrame = -1;
-        _spellFsmInjected = false;
-        _pendingZeroHealthLossDamage = false;
-        _combatService.DisposeDebugVisuals();
-        _iceShieldDisplay.Dispose();
-        _runtime.Dispose();
+        if (count <= 0)
+        {
+            return;
+        }
+
+        bool queueWasEmpty = _pendingSpawns.Count == 0;
+        for (int i = 0; i < count; i++)
+        {
+            _pendingSpawns.Enqueue(new QueuedOrbSpawn(orbType, 1));
+        }
+
+        if (queueWasEmpty)
+        {
+            _spawnQueueTimer = SpawnIntervalSeconds;
+        }
     }
 
-    public void ResetAll()
+    private void TickSpawnQueue(HeroController hero, float deltaTime)
     {
-        _roundCounter = 0;
-        _parryWindowConsumed = false;
-        _lastShadowDashDodgeAdvanceFrame = -1;
-        _spellFsmInjected = false;
-        _pendingZeroHealthLossDamage = false;
-        _shieldState.Clear();
-        _combatService.DisposeDebugVisuals();
-        _iceShieldDisplay.Dispose();
-        _runtime.Dispose();
+        if (_pendingSpawns.Count <= 0)
+        {
+            _spawnQueueTimer = 0f;
+            return;
+        }
+
+        _spawnQueueTimer -= deltaTime;
+        while (_pendingSpawns.Count > 0 && _spawnQueueTimer <= 0f)
+        {
+            TryProcessNextQueuedSpawn();
+            if (_pendingSpawns.Count > 0)
+            {
+                _spawnQueueTimer += SpawnIntervalSeconds;
+            }
+            else
+            {
+                _spawnQueueTimer = 0f;
+            }
+        }
     }
 
-    public void ClearGeneratedOrbs()
+    private bool TryProcessNextQueuedSpawn()
     {
-        _persistentState.Clear();
-        _runtime.Dispose();
-        _logDebug("Cleared all generated orbs on bench save.");
-    }
+        if (_pendingSpawns.Count <= 0)
+        {
+            return false;
+        }
 
-    public void ClearIceShield()
-    {
-        _shieldState.Clear();
-        _logDebug("Cleared ice shield on bench save/load.");
-    }
-
-    public bool ShouldInjectSpellFsm(PlayMakerFSM fsm, HeroController hero)
-    {
-        return CanProcess() && fsm != null && !_spellFsmInjected && fsm.gameObject == hero.gameObject && fsm.FsmName == "Spell Control";
-    }
-
-    public bool MarkSpellFsmInjected()
-    {
-        _spellFsmInjected = true;
+        QueuedOrbSpawn queuedSpawn = _pendingSpawns.Dequeue();
+        HandleSpellCast(queuedSpawn.OrbType);
         return true;
     }
 
-    public OrbPersistentState SnapshotPersistentState()
+    private OrbTypeId GetOrbTypeForCurrentForm()
     {
-        _persistentState.ReplaceFromRuntime(_runtime.SnapshotActiveOrbs());
-        return _persistentState;
+        return _currentForm == FormMode.Lightning ? OrbTypeId.Yellow : OrbTypeId.Black;
     }
 
     private void TriggerPassiveOrbs(HeroController hero, bool triggerIceOrbPassives = true)
@@ -419,6 +493,11 @@ internal sealed class OrbSystem
             return;
         }
 
+        if (spawnType == OrbTypeId.Yellow)
+        {
+            _roomGeneratedLightningOrbCount++;
+        }
+
         _logDebug($"TriggerEvocation -> spawnType={spawnType}, evictedOrb.TypeId={evictedOrb.TypeId}; triggering evocation.");
         OrbTriggerContext context = CreateTriggerContext(hero);
         if (evictedOrb.TypeId != OrbTypeId.White)
@@ -439,6 +518,14 @@ internal sealed class OrbSystem
             {
                 orb.Definition.OnEvocation(context, orb);
             }
+        }
+    }
+
+    private void DealIceBigSkillRoomAoe(HeroController hero, List<HealthManager> enemiesInRadius, int damage)
+    {
+        for (int i = 0; i < enemiesInRadius.Count; i++)
+        {
+            _combatService.TryDealOrbDamage(hero, enemiesInRadius[i], damage, AttackTypes.Generic);
         }
     }
 
@@ -463,29 +550,9 @@ internal sealed class OrbSystem
         return playerData.GetBool("equippedCharm_19");
     }
 
-    public bool CanGenerateOrbForSpell(OrbTypeId orbType)
-    {
-        PlayerData? playerData = PlayerData.instance;
-        return playerData != null && HasUnlockedSpellForOrb(playerData, orbType);
-    }
-
     private static bool HasFlukenest(PlayerData playerData)
     {
         return playerData.GetBool("equippedCharm_11");
-    }
-
-    private bool CanConsumeSpellForOrb(OrbTypeId orbType)
-    {
-        return CanProcess() && _getHero() != null && CanGenerateOrbForSpell(orbType);
-    }
-
-    private void AdvanceRound(HeroController hero, RoundAdvanceSource source, string? debugDetail = null, bool triggerIceOrbPassives = true)
-    {
-        _roundCounter++;
-        string detailSuffix = string.IsNullOrEmpty(debugDetail) ? string.Empty : $" ({debugDetail})";
-        _logDebug($"Advanced round {_roundCounter} via {source}{detailSuffix}.");
-        TriggerPassiveOrbs(hero, triggerIceOrbPassives);
-        _persistentState.ReplaceFromRuntime(_runtime.SnapshotActiveOrbs());
     }
 
     private int GetCurrentSpellLevelForOrb(OrbTypeId orbType)
@@ -508,11 +575,6 @@ internal sealed class OrbSystem
             OrbTypeId.Black => Math.Max(0, playerData.GetInt("quakeLevel")),
             _ => 0
         };
-    }
-
-    private static bool ShouldAdvanceRoundFromHeroDamage(int hazardType, int damageAmount)
-    {
-        return damageAmount > 0 && (hazardType == 0 || hazardType == 1);
     }
 
     private static bool CanHeroTakeDamage(HeroController hero, int hazardType)
@@ -548,16 +610,6 @@ internal sealed class OrbSystem
         }
 
         return !(hero.parryInvulnTimer > 0f && hazardType == 1);
-    }
-
-    private bool ShouldAdvanceRoundFromHeroParry(HeroController hero)
-    {
-        return !_parryWindowConsumed;
-    }
-
-    private bool ShouldAdvanceRoundFromHeroShadowDashDodge(HeroController hero)
-    {
-        return hero.cState.shadowDashing && Time.frameCount != _lastShadowDashDodgeAdvanceFrame;
     }
 
     private bool CanProcess()

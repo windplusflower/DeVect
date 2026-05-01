@@ -102,6 +102,26 @@ internal sealed class OrbCombatService
         return candidates;
     }
 
+    public List<HealthManager> FindAllEnemiesInRadius(HeroController hero, float radius)
+    {
+        List<HealthManager> candidates = FindAllEnemiesInRange(hero);
+        if (hero == null || radius <= 0f)
+        {
+            return candidates;
+        }
+
+        List<HealthManager> filtered = new();
+        for (int i = 0; i < candidates.Count; i++)
+        {
+            if (Vector2.Distance(hero.transform.position, candidates[i].transform.position) <= radius)
+            {
+                filtered.Add(candidates[i]);
+            }
+        }
+
+        return filtered;
+    }
+
     public void TickDebugVisuals()
     {
         TickEnemySearchDebugRenderer();

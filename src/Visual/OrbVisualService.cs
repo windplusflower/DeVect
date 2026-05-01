@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using DeVect.Orbs;
 using DeVect.Orbs.Definitions;
 using UnityEngine;
 
@@ -23,13 +24,23 @@ internal sealed class OrbVisualService
     private const float RefractionRingLifetime = 0.38f;
     private const float GlassFlashLifetime = 0.24f;
     private const float HeroChestEffectBaseYOffset = 0.38f;
+    private const int HeroAuraLayerCount = 6;
     private const int DashCount = 14;
     private static readonly Color DashColor = new(1f, 1f, 1f, 0.55f);
 
     private readonly List<TransientVisual> _transientVisuals = new();
+    private GameObject? _heroAuraRoot;
+    private readonly List<Transform> _heroAuraLayerTransforms = new();
+    private readonly List<SpriteRenderer> _heroAuraLayerRenderers = new();
+    private FormMode? _activeAuraForm;
     private static Sprite? _pixelSprite;
     private static Sprite? _circleSprite;
     private static Sprite? _glassOrbSprite;
+    private static Sprite? _heroLightningRibbonSprite;
+    private static Sprite? _heroLightningGlowSprite;
+    private static Sprite? _heroFrostLotusSprite;
+    private static Sprite? _heroFrostMistSprite;
+    private static Sprite? _heroFrostPlumeSprite;
     private static Sprite? _electricAuraSprite;
     private static Sprite? _highlightSprite;
     private static Sprite? _glassShardSprite;
@@ -136,6 +147,54 @@ internal sealed class OrbVisualService
         }
 
         return hero.transform.position + new Vector3(0f, HeroChestEffectBaseYOffset + extraYOffset, 0f);
+    }
+
+    public void TickHeroFormAura(HeroController hero, FormMode formMode, bool visible)
+    {
+        if (!visible || hero == null || hero.transform == null)
+        {
+            ClearHeroFormAura();
+            return;
+        }
+
+        EnsureHeroAuraBuilt(formMode);
+        if (_heroAuraRoot == null || _heroAuraLayerRenderers.Count < HeroAuraLayerCount || _heroAuraLayerTransforms.Count < HeroAuraLayerCount)
+        {
+            return;
+        }
+
+        if (_activeAuraForm != formMode)
+        {
+            ApplyHeroAuraStyle(formMode);
+        }
+
+        float time = Time.time;
+        float heroHeight = GetHeroReferenceHeight(hero);
+        _heroAuraRoot.transform.position = GetHeroAuraRootWorldPosition(hero, formMode, heroHeight);
+        _heroAuraRoot.transform.rotation = Quaternion.identity;
+        _heroAuraRoot.transform.localScale = Vector3.one;
+
+        if (formMode == FormMode.Lightning)
+        {
+            TickLightningHeroAura(time);
+        }
+        else
+        {
+            TickIceHeroAura(time, heroHeight);
+        }
+    }
+
+    public void ClearHeroFormAura()
+    {
+        if (_heroAuraRoot != null)
+        {
+            Object.Destroy(_heroAuraRoot);
+        }
+
+        _heroAuraRoot = null;
+        _heroAuraLayerTransforms.Clear();
+        _heroAuraLayerRenderers.Clear();
+        _activeAuraForm = null;
     }
 
     private static Vector3 GetLightningTopWorldPosition(Vector3 endWorldPosition, float topInsetWorld)
@@ -423,6 +482,203 @@ internal sealed class OrbVisualService
         }
 
         _transientVisuals.Clear();
+        ClearHeroFormAura();
+    }
+
+    private void EnsureHeroAuraBuilt(FormMode formMode)
+    {
+        if (_heroAuraRoot != null && _heroAuraLayerRenderers.Count == HeroAuraLayerCount && _heroAuraLayerTransforms.Count == HeroAuraLayerCount)
+        {
+            return;
+        }
+
+        ClearHeroFormAura();
+        _heroAuraRoot = new GameObject("DeVect_HeroFormAura");
+
+        for (int i = 0; i < HeroAuraLayerCount; i++)
+        {
+            GameObject layer = new($"AuraLayer_{i}");
+            layer.transform.SetParent(_heroAuraRoot.transform, false);
+
+            SpriteRenderer renderer = layer.AddComponent<SpriteRenderer>();
+            renderer.sortingLayerName = "HUD";
+            renderer.sortingOrder = 16 + i;
+            renderer.enabled = false;
+
+            _heroAuraLayerTransforms.Add(layer.transform);
+            _heroAuraLayerRenderers.Add(renderer);
+        }
+
+        ApplyHeroAuraStyle(formMode);
+    }
+
+    private void ApplyHeroAuraStyle(FormMode formMode)
+    {
+        if (_heroAuraLayerRenderers.Count < HeroAuraLayerCount)
+        {
+            return;
+        }
+
+        _activeAuraForm = formMode;
+        if (formMode == FormMode.Lightning)
+        {
+            ConfigureHeroAuraLayer(0, CreateHeroLightningGlowSprite(), 16);
+            ConfigureHeroAuraLayer(1, CreateHeroLightningRibbonSprite(), 18);
+            ConfigureHeroAuraLayer(2, CreateHeroLightningRibbonSprite(), 20);
+            ConfigureHeroAuraLayer(3, CreateHeroLightningRibbonSprite(), 18);
+            ConfigureHeroAuraLayer(4, CreateHeroLightningRibbonSprite(), 19);
+            ConfigureHeroAuraLayer(5, CreateHeroLightningRibbonSprite(), 17);
+        }
+        else
+        {
+            ConfigureHeroAuraLayer(0, CreateHeroFrostMistSprite(), 16);
+            ConfigureHeroAuraLayer(1, CreateHeroFrostLotusSprite(), 18);
+            ConfigureHeroAuraLayer(2, CreateHeroFrostLotusSprite(), 19);
+            ConfigureHeroAuraLayer(3, CreateHeroFrostPlumeSprite(), 17);
+            ConfigureHeroAuraLayer(4, CreateHeroFrostPlumeSprite(), 20);
+            ConfigureHeroAuraLayer(5, CreateHeroFrostPlumeSprite(), 21);
+        }
+    }
+
+    private void TickLightningHeroAura(float time)
+    {
+        float bodyPulse = 1f + (Mathf.Sin(time * 7.6f) * 0.08f);
+        ConfigureHeroAuraPose(0, new Vector3(0f, -0.16f + (Mathf.Sin(time * 3.1f) * 0.018f), 0f), 0f, new Vector3(0.9f * bodyPulse, 1.08f * bodyPulse, 1f), new Color(1f, 0.86f, 0.22f, 0.18f + (0.06f * (0.5f + (0.5f * Mathf.Sin(time * 8.4f))))));
+        ConfigureHeroAuraPose(1, new Vector3(-0.23f + (Mathf.Sin(time * 8.2f) * 0.038f), -0.3f + (Mathf.Sin(time * 5.1f) * 0.026f), 0f), 26f + (Mathf.Sin(time * 9.4f) * 18f), new Vector3(0.4f, 0.92f + (Mathf.Sin(time * 6.1f) * 0.08f), 1f), new Color(1f, 0.84f, 0.12f, 0.76f));
+        ConfigureHeroAuraPose(2, new Vector3(0.01f + (Mathf.Sin((time * 8.9f) + 0.9f) * 0.032f), -0.2f + (Mathf.Sin((time * 6.4f) + 0.4f) * 0.04f), 0f), -6f + (Mathf.Sin((time * 10.3f) + 0.2f) * 15f), new Vector3(0.36f, 1.02f + (Mathf.Sin((time * 6.8f) + 1.1f) * 0.1f), 1f), new Color(1f, 0.97f, 0.68f, 0.92f));
+        ConfigureHeroAuraPose(3, new Vector3(0.23f + (Mathf.Sin((time * 8.1f) + 1.5f) * 0.038f), -0.28f + (Mathf.Sin((time * 4.8f) + 1.2f) * 0.026f), 0f), -28f + (Mathf.Sin((time * 9.1f) + 1.8f) * 18f), new Vector3(0.39f, 0.96f + (Mathf.Sin((time * 5.9f) + 0.7f) * 0.08f), 1f), new Color(1f, 0.88f, 0.18f, 0.8f));
+        ConfigureHeroAuraPose(4, new Vector3(Mathf.Sin(time * 12.6f) * 0.16f, -0.08f + (Mathf.Cos(time * 11.8f) * 0.06f), 0f), 54f + (Mathf.Sin(time * 14.2f) * 32f), new Vector3(0.18f, 0.4f, 1f), new Color(1f, 0.95f, 0.52f, 0.42f));
+        ConfigureHeroAuraPose(5, new Vector3(Mathf.Cos((time * 11.6f) + 0.6f) * 0.12f, -0.44f + (Mathf.Sin((time * 10.2f) + 0.4f) * 0.05f), 0f), -44f + (Mathf.Cos(time * 13.2f) * 28f), new Vector3(0.16f, 0.34f, 1f), new Color(0.96f, 0.76f, 0.08f, 0.34f));
+    }
+
+    private void TickIceHeroAura(float time, float heroHeight)
+    {
+        float normalizedHeroHeight = Mathf.Max(heroHeight, 0.8f);
+        float lotusBaseWidth = normalizedHeroHeight * 0.44f;
+        float lotusOuterHeight = normalizedHeroHeight * 0.24f;
+        float coreHeight = normalizedHeroHeight * 0.22f;
+        float lotusPulse = 1f + (Mathf.Sin(time * 2.2f) * 0.05f);
+        float bloomPulse = 1f + (Mathf.Cos((time * 2.6f) + 0.8f) * 0.04f);
+        ConfigureHeroAuraPose(0, new Vector3(0f, (normalizedHeroHeight * 0.035f) + (Mathf.Sin(time * 1.9f) * normalizedHeroHeight * 0.008f), 0f), 0f, new Vector3(lotusBaseWidth * lotusPulse, normalizedHeroHeight * 0.16f * lotusPulse, 1f), new Color(0.52f, 0.84f, 1f, 0.34f));
+        ConfigureHeroAuraPose(1, new Vector3(0f, (normalizedHeroHeight * 0.075f) + (Mathf.Sin((time * 1.8f) + 0.5f) * normalizedHeroHeight * 0.006f), 0f), 0f, new Vector3((lotusBaseWidth * 0.82f) * lotusPulse, lotusOuterHeight * lotusPulse, 1f), new Color(0.56f, 0.9f, 1f, 0.74f));
+        ConfigureHeroAuraPose(2, new Vector3(0f, (normalizedHeroHeight * 0.1f) + (Mathf.Cos((time * 2.1f) + 0.9f) * normalizedHeroHeight * 0.006f), 0f), 0f, new Vector3((lotusBaseWidth * 0.64f) * bloomPulse, coreHeight * bloomPulse, 1f), new Color(0.9f, 0.98f, 1f, 0.42f));
+        TickIceLotusMistLayer(3, time, -normalizedHeroHeight * 0.09f, 0.2f, normalizedHeroHeight * 0.07f, normalizedHeroHeight);
+        TickIceLotusMistLayer(4, time, normalizedHeroHeight * 0.09f, 0.7f, normalizedHeroHeight * 0.085f, normalizedHeroHeight);
+        TickIceCenterPlumeLayer(5, time, normalizedHeroHeight);
+    }
+
+    private void TickIceLotusMistLayer(int layerIndex, float time, float baseX, float phaseOffset, float heightOffset, float heroHeight)
+    {
+        float cycle = Mathf.Repeat((time * 0.32f) + phaseOffset, 1f);
+        float rise = Mathf.Lerp(heroHeight * 0.01f, heroHeight * 0.12f, cycle);
+        float widthPulse = (heroHeight * 0.12f) + ((heroHeight * 0.028f) * Mathf.Sin((time * 2.1f) + phaseOffset));
+        float alpha = Mathf.Lerp(0.1f, 0.28f, 1f - cycle);
+        ConfigureHeroAuraPose(
+            layerIndex,
+            new Vector3(baseX + (Mathf.Sin((time * 2.4f) + phaseOffset) * heroHeight * 0.02f), heightOffset + rise, 0f),
+            Mathf.Sin((time * 2.8f) + phaseOffset) * 5f,
+            new Vector3(widthPulse, (heroHeight * 0.13f) + (cycle * heroHeight * 0.1f), 1f),
+            new Color(0.76f, 0.95f, 1f, alpha));
+    }
+
+    private void TickIceCenterPlumeLayer(int layerIndex, float time, float heroHeight)
+    {
+        float cycle = Mathf.Repeat((time * 0.28f) + 0.45f, 1f);
+        float rise = Mathf.Lerp(heroHeight * 0.04f, heroHeight * 0.2f, cycle);
+        float sway = Mathf.Sin((time * 2.2f) + 0.6f) * heroHeight * 0.015f;
+        float width = (heroHeight * 0.09f) + ((heroHeight * 0.018f) * Mathf.Sin((time * 2.4f) + 0.3f));
+        float alpha = Mathf.Lerp(0.12f, 0.3f, 1f - cycle);
+        ConfigureHeroAuraPose(
+            layerIndex,
+            new Vector3(sway, (heroHeight * 0.1f) + rise, 0f),
+            Mathf.Sin((time * 2.6f) + 0.8f) * 4f,
+            new Vector3(width, (heroHeight * 0.16f) + (cycle * heroHeight * 0.12f), 1f),
+            new Color(0.84f, 0.97f, 1f, alpha));
+    }
+
+    private static Vector3 GetHeroAuraRootWorldPosition(HeroController hero, FormMode formMode, float heroHeight)
+    {
+        if (formMode == FormMode.Lightning)
+        {
+            return hero.transform.position + new Vector3(0f, -0.45f, 0f);
+        }
+
+        float feetY = GetHeroFeetY(hero, heroHeight);
+        return new Vector3(hero.transform.position.x, feetY, hero.transform.position.z);
+    }
+
+    private static float GetHeroReferenceHeight(HeroController hero)
+    {
+        GetHeroReferenceExtents(hero, out float feetY, out float topY);
+        float measuredHeight = topY - feetY;
+        return measuredHeight > 0.01f ? measuredHeight : 1.8f;
+    }
+
+    private static float GetHeroFeetY(HeroController hero, float fallbackHeight)
+    {
+        GetHeroReferenceExtents(hero, out float feetY, out float topY);
+        if (topY - feetY > 0.01f)
+        {
+            return feetY;
+        }
+
+        return hero.transform.position.y - (fallbackHeight * 0.5f);
+    }
+
+    private static void GetHeroReferenceExtents(HeroController hero, out float minY, out float maxY)
+    {
+        minY = float.PositiveInfinity;
+        maxY = float.NegativeInfinity;
+
+        Renderer? heroRenderer = hero.GetComponent<Renderer>();
+        if (heroRenderer != null && heroRenderer.enabled)
+        {
+            Bounds bounds = heroRenderer.bounds;
+            minY = Mathf.Min(minY, bounds.min.y);
+            maxY = Mathf.Max(maxY, bounds.max.y);
+        }
+
+        Collider2D? heroCollider = hero.GetComponent<Collider2D>();
+        if (heroCollider != null && heroCollider.enabled)
+        {
+            Bounds bounds = heroCollider.bounds;
+            minY = Mathf.Min(minY, bounds.min.y);
+            maxY = Mathf.Max(maxY, bounds.max.y);
+        }
+
+        if (float.IsInfinity(minY) || float.IsInfinity(maxY))
+        {
+            minY = hero.transform.position.y - 0.9f;
+            maxY = hero.transform.position.y + 0.9f;
+        }
+    }
+
+    private void ConfigureHeroAuraLayer(int index, Sprite sprite, int sortingOrder)
+    {
+        if (index < 0 || index >= _heroAuraLayerRenderers.Count)
+        {
+            return;
+        }
+
+        SpriteRenderer renderer = _heroAuraLayerRenderers[index];
+        renderer.sprite = sprite;
+        renderer.sortingLayerName = "HUD";
+        renderer.sortingOrder = sortingOrder;
+        renderer.enabled = true;
+    }
+
+    private void ConfigureHeroAuraPose(int index, Vector3 localPosition, float rotationDegrees, Vector3 localScale, Color color)
+    {
+        if (index < 0 || index >= _heroAuraLayerTransforms.Count || index >= _heroAuraLayerRenderers.Count)
+        {
+            return;
+        }
+
+        _heroAuraLayerTransforms[index].localPosition = localPosition;
+        _heroAuraLayerTransforms[index].localRotation = Quaternion.Euler(0f, 0f, rotationDegrees);
+        _heroAuraLayerTransforms[index].localScale = localScale;
+        _heroAuraLayerRenderers[index].color = color;
+        _heroAuraLayerRenderers[index].enabled = color.a > 0.001f;
     }
 
     private static Sprite CreatePixelSprite()
@@ -677,6 +933,125 @@ internal sealed class OrbVisualService
         return highlight;
     }
 
+    private static Sprite CreateHeroLightningRibbonSprite()
+    {
+        if (_heroLightningRibbonSprite != null)
+        {
+            return _heroLightningRibbonSprite;
+        }
+
+        const int width = 56;
+        const int height = 104;
+        Texture2D texture = new(width, height, TextureFormat.RGBA32, false)
+        {
+            filterMode = FilterMode.Bilinear,
+            wrapMode = TextureWrapMode.Clamp,
+            name = "DeVect_HeroLightningRibbon"
+        };
+
+        Color clear = new(0f, 0f, 0f, 0f);
+        Color[] clearPixels = new Color[width * height];
+        for (int i = 0; i < clearPixels.Length; i++)
+        {
+            clearPixels[i] = clear;
+        }
+
+        texture.SetPixels(clearPixels);
+
+        Color glowColor = new(1f, 1f, 1f, 0.28f);
+        Color coreColor = new(1f, 1f, 1f, 0.96f);
+        Vector2[] boltStarts =
+        {
+            new(width * 0.34f, height * 0.88f),
+            new(width * 0.56f, height * 0.8f),
+            new(width * 0.42f, height * 0.7f)
+        };
+        Vector2[] boltEnds =
+        {
+            new(width * 0.6f, height * 0.16f),
+            new(width * 0.28f, height * 0.1f),
+            new(width * 0.62f, height * 0.22f)
+        };
+        int[] seeds = { 113, 271, 419 };
+
+        for (int i = 0; i < boltStarts.Length; i++)
+        {
+            Vector2[] mainPath = BuildLightningPath(seeds[i], boltStarts[i], boltEnds[i], width * 0.12f, 7 + i);
+            DrawLightningBolt(texture, mainPath, coreColor, glowColor, 1, 3);
+
+            int branchIndexA = Mathf.Clamp(mainPath.Length / 3, 1, mainPath.Length - 2);
+            int branchIndexB = Mathf.Clamp((mainPath.Length * 2) / 3, 1, mainPath.Length - 2);
+            float branchAngleA = i % 2 == 0 ? 34f : 146f;
+            float branchAngleB = i % 2 == 0 ? 228f : 318f;
+            DrawLightningBranch(texture, mainPath[branchIndexA], branchAngleA, width * 0.16f, seeds[i] + 17, coreColor, glowColor, 1, 2);
+            DrawLightningBranch(texture, mainPath[branchIndexB], branchAngleB, width * 0.12f, seeds[i] + 29, coreColor, glowColor, 1, 2);
+            StampSoftPixel(texture, Mathf.RoundToInt(mainPath[branchIndexA].x), Mathf.RoundToInt(mainPath[branchIndexA].y), new Color(1f, 1f, 1f, 0.3f), 3);
+        }
+
+        for (int y = 0; y < height; y++)
+        {
+            float yProgress = y / (height - 1f);
+            float bottomFade = Mathf.Clamp01(yProgress / 0.08f);
+            float topFade = Mathf.Clamp01((0.82f - yProgress) / 0.16f);
+            float endFade = bottomFade * topFade;
+
+            for (int x = 0; x < width; x++)
+            {
+                Color pixel = texture.GetPixel(x, y);
+                if (pixel.a <= 0.001f)
+                {
+                    continue;
+                }
+
+                float xProgress = Mathf.Abs((x / (width - 1f)) - 0.5f);
+                float sideFade = Mathf.Clamp01(1f - (xProgress / 0.58f));
+                pixel.a *= endFade * sideFade;
+                texture.SetPixel(x, y, pixel.a <= 0.001f ? Color.clear : pixel);
+            }
+        }
+
+        texture.Apply();
+        _heroLightningRibbonSprite = Sprite.Create(texture, new Rect(0f, 0f, width, height), new Vector2(0.5f, 0.76f), height);
+        _heroLightningRibbonSprite.name = "DeVect_HeroLightningRibbonSprite";
+        return _heroLightningRibbonSprite;
+    }
+
+    private static Sprite CreateHeroLightningGlowSprite()
+    {
+        if (_heroLightningGlowSprite != null)
+        {
+            return _heroLightningGlowSprite;
+        }
+
+        const int width = 64;
+        const int height = 96;
+        Texture2D texture = new(width, height, TextureFormat.RGBA32, false)
+        {
+            filterMode = FilterMode.Bilinear,
+            wrapMode = TextureWrapMode.Clamp,
+            name = "DeVect_HeroLightningGlow"
+        };
+
+        Vector2 center = new(width * 0.5f, height * 0.42f);
+        Vector2 outerRadius = new(width * 0.3f, height * 0.3f);
+        Vector2 innerRadius = new(width * 0.15f, height * 0.22f);
+        for (int y = 0; y < height; y++)
+        {
+            for (int x = 0; x < width; x++)
+            {
+                float outerGlow = SampleEllipseMask(x, y, center, outerRadius, 1.7f);
+                float innerCore = SampleEllipseMask(x, y, center + new Vector2(0f, height * 0.03f), innerRadius, 1.9f);
+                float alpha = Mathf.Clamp01((outerGlow * 0.62f) + (innerCore * 0.42f));
+                texture.SetPixel(x, y, alpha <= 0.001f ? Color.clear : new Color(1f, 1f, 1f, alpha));
+            }
+        }
+
+        texture.Apply();
+        _heroLightningGlowSprite = Sprite.Create(texture, new Rect(0f, 0f, width, height), new Vector2(0.5f, 0.74f), height);
+        _heroLightningGlowSprite.name = "DeVect_HeroLightningGlowSprite";
+        return _heroLightningGlowSprite;
+    }
+
     private static Sprite CreateElectricAuraSprite()
     {
         if (_electricAuraSprite != null)
@@ -758,6 +1133,125 @@ internal sealed class OrbVisualService
         _highlightSprite = Sprite.Create(texture, new Rect(0f, 0f, size, size), new Vector2(0.5f, 0.5f), size);
         _highlightSprite.name = "DeVect_HighlightSprite";
         return _highlightSprite;
+    }
+
+    private static Sprite CreateHeroFrostMistSprite()
+    {
+        if (_heroFrostMistSprite != null)
+        {
+            return _heroFrostMistSprite;
+        }
+
+        const int width = 80;
+        const int height = 56;
+        Texture2D texture = new(width, height, TextureFormat.RGBA32, false)
+        {
+            filterMode = FilterMode.Bilinear,
+            wrapMode = TextureWrapMode.Clamp,
+            name = "DeVect_HeroFrostMist"
+        };
+
+        Vector2 leftCenter = new(width * 0.3f, height * 0.28f);
+        Vector2 middleCenter = new(width * 0.5f, height * 0.34f);
+        Vector2 rightCenter = new(width * 0.7f, height * 0.28f);
+        for (int y = 0; y < height; y++)
+        {
+            for (int x = 0; x < width; x++)
+            {
+                float left = SampleEllipseMask(x, y, leftCenter, new Vector2(width * 0.18f, height * 0.18f), 1.5f);
+                float middle = SampleEllipseMask(x, y, middleCenter, new Vector2(width * 0.24f, height * 0.22f), 1.55f);
+                float right = SampleEllipseMask(x, y, rightCenter, new Vector2(width * 0.18f, height * 0.18f), 1.5f);
+                float topHaze = SampleEllipseMask(x, y, new Vector2(width * 0.5f, height * 0.52f), new Vector2(width * 0.18f, height * 0.16f), 1.75f);
+                float alpha = Mathf.Clamp01((Mathf.Max(middle, Mathf.Max(left, right)) * 0.98f) + (topHaze * 0.22f));
+                texture.SetPixel(x, y, alpha <= 0.001f ? Color.clear : new Color(1f, 1f, 1f, alpha));
+            }
+        }
+
+        texture.Apply();
+        _heroFrostMistSprite = Sprite.Create(texture, new Rect(0f, 0f, width, height), new Vector2(0.5f, 0.04f), height);
+        _heroFrostMistSprite.name = "DeVect_HeroFrostMistSprite";
+        return _heroFrostMistSprite;
+    }
+
+    private static Sprite CreateHeroFrostLotusSprite()
+    {
+        if (_heroFrostLotusSprite != null)
+        {
+            return _heroFrostLotusSprite;
+        }
+
+        const int width = 88;
+        const int height = 64;
+        Texture2D texture = new(width, height, TextureFormat.RGBA32, false)
+        {
+            filterMode = FilterMode.Bilinear,
+            wrapMode = TextureWrapMode.Clamp,
+            name = "DeVect_HeroFrostLotus"
+        };
+
+        for (int y = 0; y < height; y++)
+        {
+            for (int x = 0; x < width; x++)
+            {
+                float centerPetal = SampleRotatedEllipseMask(x, y, new Vector2(width * 0.5f, height * 0.38f), new Vector2(width * 0.11f, height * 0.22f), 0f, 1.55f);
+                float leftInnerPetal = SampleRotatedEllipseMask(x, y, new Vector2(width * 0.38f, height * 0.34f), new Vector2(width * 0.1f, height * 0.2f), 24f, 1.5f);
+                float rightInnerPetal = SampleRotatedEllipseMask(x, y, new Vector2(width * 0.62f, height * 0.34f), new Vector2(width * 0.1f, height * 0.2f), -24f, 1.5f);
+                float leftOuterPetal = SampleRotatedEllipseMask(x, y, new Vector2(width * 0.25f, height * 0.28f), new Vector2(width * 0.1f, height * 0.18f), 48f, 1.42f);
+                float rightOuterPetal = SampleRotatedEllipseMask(x, y, new Vector2(width * 0.75f, height * 0.28f), new Vector2(width * 0.1f, height * 0.18f), -48f, 1.42f);
+                float coreGlow = SampleEllipseMask(x, y, new Vector2(width * 0.5f, height * 0.25f), new Vector2(width * 0.16f, height * 0.09f), 1.7f);
+
+                float petals = Mathf.Max(centerPetal, Mathf.Max(leftInnerPetal, Mathf.Max(rightInnerPetal, Mathf.Max(leftOuterPetal, rightOuterPetal))));
+                float alpha = Mathf.Clamp01((petals * 0.9f) + (coreGlow * 0.22f));
+                texture.SetPixel(x, y, alpha <= 0.001f ? Color.clear : new Color(1f, 1f, 1f, alpha));
+            }
+        }
+
+        texture.Apply();
+        _heroFrostLotusSprite = Sprite.Create(texture, new Rect(0f, 0f, width, height), new Vector2(0.5f, 0.02f), height);
+        _heroFrostLotusSprite.name = "DeVect_HeroFrostLotusSprite";
+        return _heroFrostLotusSprite;
+    }
+
+    private static Sprite CreateHeroFrostPlumeSprite()
+    {
+        if (_heroFrostPlumeSprite != null)
+        {
+            return _heroFrostPlumeSprite;
+        }
+
+        const int width = 48;
+        const int height = 96;
+        Texture2D texture = new(width, height, TextureFormat.RGBA32, false)
+        {
+            filterMode = FilterMode.Bilinear,
+            wrapMode = TextureWrapMode.Clamp,
+            name = "DeVect_HeroFrostPlume"
+        };
+
+        for (int y = 0; y < height; y++)
+        {
+            float yProgress = y / (height - 1f);
+            float centerX = (width * 0.5f)
+                + (Mathf.Sin((yProgress * 5.8f) + 0.6f) * (width * 0.06f))
+                + (Mathf.Sin((yProgress * 11.6f) - 0.35f) * (width * 0.025f));
+            float halfWidth = Mathf.Lerp(width * 0.26f, width * 0.08f, yProgress);
+            float bodyFade = Mathf.Clamp01(yProgress / 0.08f) * Mathf.Clamp01((1f - yProgress) / 0.14f);
+
+            for (int x = 0; x < width; x++)
+            {
+                float distance = Mathf.Abs(x - centerX);
+                float column = Mathf.Clamp01(1f - (distance / halfWidth));
+                float bulbA = SampleEllipseMask(x, y, new Vector2(width * 0.5f, height * 0.2f), new Vector2(width * 0.2f, height * 0.11f), 1.4f);
+                float bulbB = SampleEllipseMask(x, y, new Vector2(width * 0.48f, height * 0.48f), new Vector2(width * 0.18f, height * 0.14f), 1.6f);
+                float alpha = Mathf.Clamp01((Mathf.Pow(column, 1.38f) * 0.84f) + (bulbA * 0.34f) + (bulbB * 0.24f)) * bodyFade;
+                texture.SetPixel(x, y, alpha <= 0.001f ? Color.clear : new Color(1f, 1f, 1f, alpha));
+            }
+        }
+
+        texture.Apply();
+        _heroFrostPlumeSprite = Sprite.Create(texture, new Rect(0f, 0f, width, height), new Vector2(0.5f, 0.06f), height);
+        _heroFrostPlumeSprite.name = "DeVect_HeroFrostPlumeSprite";
+        return _heroFrostPlumeSprite;
     }
 
     private static Sprite CreateGlassShardSprite()
@@ -890,6 +1384,29 @@ internal sealed class OrbVisualService
         }
 
         return inside;
+    }
+
+    private static float SampleEllipseMask(float x, float y, Vector2 center, Vector2 radii, float power)
+    {
+        float normalizedX = (x - center.x) / Mathf.Max(0.001f, radii.x);
+        float normalizedY = (y - center.y) / Mathf.Max(0.001f, radii.y);
+        float distance = (normalizedX * normalizedX) + (normalizedY * normalizedY);
+        return distance >= 1f ? 0f : Mathf.Pow(1f - distance, power);
+    }
+
+    private static float SampleRotatedEllipseMask(float x, float y, Vector2 center, Vector2 radii, float rotationDegrees, float power)
+    {
+        float radians = rotationDegrees * Mathf.Deg2Rad;
+        float cos = Mathf.Cos(radians);
+        float sin = Mathf.Sin(radians);
+        float offsetX = x - center.x;
+        float offsetY = y - center.y;
+        float rotatedX = (offsetX * cos) + (offsetY * sin);
+        float rotatedY = (-offsetX * sin) + (offsetY * cos);
+        float normalizedX = rotatedX / Mathf.Max(0.001f, radii.x);
+        float normalizedY = rotatedY / Mathf.Max(0.001f, radii.y);
+        float distance = (normalizedX * normalizedX) + (normalizedY * normalizedY);
+        return distance >= 1f ? 0f : Mathf.Pow(1f - distance, power);
     }
 
     private static Sprite CreateIceOrbSprite()
