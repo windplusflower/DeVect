@@ -284,14 +284,41 @@ public partial class DeVectMod : Mod, IGlobalSettings<DeVectSettings>, ILocalSet
 
         HeroController? hero = HeroController.instance;
         if (hero != null
-            && damageInstance.Source == hero.gameObject
-            && (damageInstance.AttackType == AttackTypes.Nail || damageInstance.AttackType == AttackTypes.NailBeam)
+            && IsHeroFinalNailDamage(hero, damageInstance)
             && damageInstance.DamageDealt > 1)
         {
+            LogModDebug($"Clamping hero attack damage to 1 before hit resolution. Source={damageInstance.Source?.name ?? "<null>"}, Target={targetGameObject?.name ?? "<null>"}, AttackType={damageInstance.AttackType}, OriginalDamage={damageInstance.DamageDealt}");
             damageInstance.DamageDealt = 1;
         }
 
         orig(targetGameObject, damageInstance, recursionDepth);
+    }
+
+    private static bool IsHeroFinalNailDamage(HeroController hero, HitInstance damageInstance)
+    {
+        if (hero == null)
+        {
+            return false;
+        }
+
+        if (damageInstance.AttackType != AttackTypes.Nail && damageInstance.AttackType != AttackTypes.NailBeam)
+        {
+            return false;
+        }
+
+        GameObject? source = damageInstance.Source;
+        if (source == null)
+        {
+            return false;
+        }
+
+        if (source == hero.gameObject)
+        {
+            return true;
+        }
+
+        Transform sourceTransform = source.transform;
+        return sourceTransform != null && sourceTransform.root == hero.transform;
     }
 
     private void OnHeroDashStarted(On.HeroController.orig_HeroDash orig, HeroController self)
