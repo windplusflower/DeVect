@@ -2,6 +2,8 @@
 
 [**中文说明**](README.md) | **English Version**
 
+![DeVect Poster](assets/readme-poster-4x3.png)
+
 `DeVect` is a Hollow Knight mod that turns the Knight's spell inputs into a Defect-style orb system.
 
 Combat revolves around `Lightning Form` and `Ice Form`, with `form swapping`, `passive triggers`, `queued orb generation`, `full-slot evocation`, and `ice shield absorption` as the main mechanics.
