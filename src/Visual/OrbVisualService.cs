@@ -38,8 +38,10 @@ internal sealed class OrbVisualService
     private static Sprite? _pixelSprite;
     private static Sprite? _circleSprite;
     private static Sprite? _glassOrbSprite;
-    private static Sprite? _heroLightningRibbonSprite;
-    private static Sprite? _heroLightningGlowSprite;
+    private static Sprite? _heroLightningCoilSprite;
+    private static Sprite? _heroLightningBandSprite;
+    private static Sprite? _heroLightningArcSprite;
+    private static Sprite? _heroLightningKnotSprite;
     private static Sprite? _heroFrostLotusSprite;
     private static Sprite? _heroFrostMistSprite;
     private static Sprite? _heroFrostPlumeSprite;
@@ -196,7 +198,7 @@ internal sealed class OrbVisualService
 
         if (formMode == FormMode.Lightning)
         {
-            TickLightningHeroAura(time);
+            TickLightningHeroAura(time, heroHeight);
         }
         else
         {
@@ -543,12 +545,12 @@ internal sealed class OrbVisualService
         _activeAuraForm = formMode;
         if (formMode == FormMode.Lightning)
         {
-            ConfigureHeroAuraLayer(0, CreateHeroLightningGlowSprite(), 16);
-            ConfigureHeroAuraLayer(1, CreateHeroLightningRibbonSprite(), 18);
-            ConfigureHeroAuraLayer(2, CreateHeroLightningRibbonSprite(), 20);
-            ConfigureHeroAuraLayer(3, CreateHeroLightningRibbonSprite(), 18);
-            ConfigureHeroAuraLayer(4, CreateHeroLightningRibbonSprite(), 19);
-            ConfigureHeroAuraLayer(5, CreateHeroLightningRibbonSprite(), 17);
+            ConfigureHeroAuraLayer(0, CreateHeroLightningBandSprite(), 16);
+            ConfigureHeroAuraLayer(1, CreateHeroLightningCoilSprite(), 19);
+            ConfigureHeroAuraLayer(2, CreateHeroLightningCoilSprite(), 17);
+            ConfigureHeroAuraLayer(3, CreateHeroLightningCoilSprite(), 21);
+            ConfigureHeroAuraLayer(4, CreateHeroLightningArcSprite(), 18);
+            ConfigureHeroAuraLayer(5, CreateHeroLightningKnotSprite(), 20);
         }
         else
         {
@@ -561,15 +563,63 @@ internal sealed class OrbVisualService
         }
     }
 
-    private void TickLightningHeroAura(float time)
+    private void TickLightningHeroAura(float time, float heroHeight)
     {
-        float bodyPulse = 1f + (Mathf.Sin(time * 7.6f) * 0.08f);
-        ConfigureHeroAuraPose(0, new Vector3(0f, -0.16f + (Mathf.Sin(time * 3.1f) * 0.018f), 0f), 0f, new Vector3(0.9f * bodyPulse, 1.08f * bodyPulse, 1f), new Color(1f, 0.86f, 0.22f, 0.18f + (0.06f * (0.5f + (0.5f * Mathf.Sin(time * 8.4f))))));
-        ConfigureHeroAuraPose(1, new Vector3(-0.23f + (Mathf.Sin(time * 8.2f) * 0.038f), -0.3f + (Mathf.Sin(time * 5.1f) * 0.026f), 0f), 26f + (Mathf.Sin(time * 9.4f) * 18f), new Vector3(0.4f, 0.92f + (Mathf.Sin(time * 6.1f) * 0.08f), 1f), new Color(1f, 0.84f, 0.12f, 0.76f));
-        ConfigureHeroAuraPose(2, new Vector3(0.01f + (Mathf.Sin((time * 8.9f) + 0.9f) * 0.032f), -0.2f + (Mathf.Sin((time * 6.4f) + 0.4f) * 0.04f), 0f), -6f + (Mathf.Sin((time * 10.3f) + 0.2f) * 15f), new Vector3(0.36f, 1.02f + (Mathf.Sin((time * 6.8f) + 1.1f) * 0.1f), 1f), new Color(1f, 0.97f, 0.68f, 0.92f));
-        ConfigureHeroAuraPose(3, new Vector3(0.23f + (Mathf.Sin((time * 8.1f) + 1.5f) * 0.038f), -0.28f + (Mathf.Sin((time * 4.8f) + 1.2f) * 0.026f), 0f), -28f + (Mathf.Sin((time * 9.1f) + 1.8f) * 18f), new Vector3(0.39f, 0.96f + (Mathf.Sin((time * 5.9f) + 0.7f) * 0.08f), 1f), new Color(1f, 0.88f, 0.18f, 0.8f));
-        ConfigureHeroAuraPose(4, new Vector3(Mathf.Sin(time * 12.6f) * 0.16f, -0.08f + (Mathf.Cos(time * 11.8f) * 0.06f), 0f), 54f + (Mathf.Sin(time * 14.2f) * 32f), new Vector3(0.18f, 0.4f, 1f), new Color(1f, 0.95f, 0.52f, 0.42f));
-        ConfigureHeroAuraPose(5, new Vector3(Mathf.Cos((time * 11.6f) + 0.6f) * 0.12f, -0.44f + (Mathf.Sin((time * 10.2f) + 0.4f) * 0.05f), 0f), -44f + (Mathf.Cos(time * 13.2f) * 28f), new Vector3(0.16f, 0.34f, 1f), new Color(0.96f, 0.76f, 0.08f, 0.34f));
+        float normalizedHeroHeight = Mathf.Max(heroHeight, 0.8f);
+        float bandPulse = 1f + (SampleSteppedJitter(time, 30f, 0.17f) * 0.06f);
+        float leftCoilPulse = 1f + (SampleSteppedJitter(time, 42f, 0.29f) * 0.08f);
+        float rightCoilPulse = 1f + (SampleSteppedJitter(time, 46f, 0.43f) * 0.08f);
+        float centerCoilPulse = 1f + (SampleSteppedJitter(time, 40f, 0.57f) * 0.07f);
+        float arcPulse = 1f + (SampleSteppedJitter(time, 58f, 0.71f) * 0.18f);
+        float knotPulse = 1f + (SampleSteppedJitter(time, 62f, 0.89f) * 0.2f);
+        Vector2 bandJitter = SampleAuraJitter(time, 28f, 0.13f, normalizedHeroHeight * 0.008f, normalizedHeroHeight * 0.006f);
+        Vector2 leftCoilJitter = SampleAuraJitter(time, 48f, 0.21f, normalizedHeroHeight * 0.016f, normalizedHeroHeight * 0.011f);
+        Vector2 rightCoilJitter = SampleAuraJitter(time, 50f, 0.39f, normalizedHeroHeight * 0.016f, normalizedHeroHeight * 0.011f);
+        Vector2 centerCoilJitter = SampleAuraJitter(time, 52f, 0.51f, normalizedHeroHeight * 0.012f, normalizedHeroHeight * 0.009f);
+        Vector2 arcJitter = SampleAuraJitter(time, 60f, 0.68f, normalizedHeroHeight * 0.016f, normalizedHeroHeight * 0.012f);
+        Vector2 knotJitter = SampleAuraJitter(time, 64f, 0.87f, normalizedHeroHeight * 0.014f, normalizedHeroHeight * 0.012f);
+
+        ConfigureHeroAuraPose(
+            0,
+            new Vector3(bandJitter.x, (normalizedHeroHeight * 0.032f) + bandJitter.y, 0f),
+            SampleSteppedJitter(time, 34f, 0.25f) * 4f,
+            new Vector3(normalizedHeroHeight * 0.37f * bandPulse, normalizedHeroHeight * 0.12f * bandPulse, 1f),
+            new Color(1f, 0.82f, 0.18f, 0.34f + (0.14f * (0.5f + (0.5f * SampleSteppedJitter(time, 32f, 0.31f))))));
+
+        ConfigureHeroAuraPose(
+            1,
+            new Vector3((-normalizedHeroHeight * 0.11f) + leftCoilJitter.x, (normalizedHeroHeight * 0.055f) + leftCoilJitter.y, 0f),
+            10f + (SampleSteppedJitter(time, 54f, 0.33f) * 8f),
+            new Vector3(normalizedHeroHeight * 0.205f, normalizedHeroHeight * 0.35f * leftCoilPulse, 1f),
+            new Color(1f, 0.9f, 0.34f, 0.92f));
+
+        ConfigureHeroAuraPose(
+            2,
+            new Vector3((normalizedHeroHeight * 0.11f) + rightCoilJitter.x, (normalizedHeroHeight * 0.052f) + rightCoilJitter.y, 0f),
+            -12f + (SampleSteppedJitter(time, 56f, 0.47f) * 8f),
+            new Vector3(-normalizedHeroHeight * 0.205f, normalizedHeroHeight * 0.345f * rightCoilPulse, 1f),
+            new Color(1f, 0.88f, 0.28f, 0.9f));
+
+        ConfigureHeroAuraPose(
+            3,
+            new Vector3(centerCoilJitter.x, (normalizedHeroHeight * 0.095f) + centerCoilJitter.y, 0f),
+            SampleSteppedJitter(time, 52f, 0.61f) * 6f,
+            new Vector3(normalizedHeroHeight * 0.17f, normalizedHeroHeight * 0.305f * centerCoilPulse, 1f),
+            new Color(1f, 0.97f, 0.62f, 1f));
+
+        ConfigureHeroAuraPose(
+            4,
+            new Vector3((-normalizedHeroHeight * 0.16f) + arcJitter.x, (normalizedHeroHeight * 0.075f) + arcJitter.y, 0f),
+            18f + (SampleSteppedJitter(time, 68f, 0.74f) * 18f),
+            new Vector3(normalizedHeroHeight * 0.19f * arcPulse, normalizedHeroHeight * 0.14f * arcPulse, 1f),
+            new Color(1f, 0.93f, 0.48f, 0.82f));
+
+        ConfigureHeroAuraPose(
+            5,
+            new Vector3((normalizedHeroHeight * 0.14f) + knotJitter.x, (normalizedHeroHeight * 0.16f) + knotJitter.y, 0f),
+            -10f + (SampleSteppedJitter(time, 70f, 0.95f) * 16f),
+            new Vector3(normalizedHeroHeight * 0.145f * knotPulse, normalizedHeroHeight * 0.145f * knotPulse, 1f),
+            new Color(1f, 0.99f, 0.76f, 0.9f));
     }
 
     private void TickIceHeroAura(float time, float heroHeight)
@@ -619,12 +669,12 @@ internal sealed class OrbVisualService
 
     private static Vector3 GetHeroAuraRootWorldPosition(HeroController hero, FormMode formMode, float heroHeight)
     {
+        float feetY = GetHeroFeetY(hero, heroHeight);
         if (formMode == FormMode.Lightning)
         {
-            return hero.transform.position + new Vector3(0f, -0.45f, 0f);
+            return new Vector3(hero.transform.position.x, feetY + (heroHeight * 0.012f), hero.transform.position.z);
         }
 
-        float feetY = GetHeroFeetY(hero, heroHeight);
         return new Vector3(hero.transform.position.x, feetY, hero.transform.position.z);
     }
 
@@ -700,6 +750,21 @@ internal sealed class OrbVisualService
         _heroAuraLayerTransforms[index].localScale = localScale;
         _heroAuraLayerRenderers[index].color = color;
         _heroAuraLayerRenderers[index].enabled = color.a > 0.001f;
+    }
+
+    private static Vector2 SampleAuraJitter(float time, float frequency, float seed, float amplitudeX, float amplitudeY)
+    {
+        return new Vector2(
+            SampleSteppedJitter(time, frequency, seed) * amplitudeX,
+            SampleSteppedJitter(time, frequency, seed + 1.37f) * amplitudeY);
+    }
+
+    private static float SampleSteppedJitter(float time, float frequency, float seed)
+    {
+        float step = Mathf.Floor(time * frequency);
+        float noiseA = Mathf.Sin((step * 12.9898f) + (seed * 78.233f));
+        float noiseB = Mathf.Sin((step * 39.3467f) + (seed * 11.135f));
+        return Mathf.Clamp((noiseA * 0.68f) + (noiseB * 0.32f), -1f, 1f);
     }
 
     private static Sprite CreatePixelSprite()
@@ -954,20 +1019,20 @@ internal sealed class OrbVisualService
         return highlight;
     }
 
-    private static Sprite CreateHeroLightningRibbonSprite()
+    private static Sprite CreateHeroLightningCoilSprite()
     {
-        if (_heroLightningRibbonSprite != null)
+        if (_heroLightningCoilSprite != null)
         {
-            return _heroLightningRibbonSprite;
+            return _heroLightningCoilSprite;
         }
 
         const int width = 56;
-        const int height = 104;
+        const int height = 112;
         Texture2D texture = new(width, height, TextureFormat.RGBA32, false)
         {
             filterMode = FilterMode.Bilinear,
             wrapMode = TextureWrapMode.Clamp,
-            name = "DeVect_HeroLightningRibbon"
+            name = "DeVect_HeroLightningCoil"
         };
 
         Color clear = new(0f, 0f, 0f, 0f);
@@ -979,43 +1044,53 @@ internal sealed class OrbVisualService
 
         texture.SetPixels(clearPixels);
 
-        Color glowColor = new(1f, 1f, 1f, 0.28f);
-        Color coreColor = new(1f, 1f, 1f, 0.96f);
-        Vector2[] boltStarts =
-        {
-            new(width * 0.34f, height * 0.88f),
-            new(width * 0.56f, height * 0.8f),
-            new(width * 0.42f, height * 0.7f)
-        };
-        Vector2[] boltEnds =
-        {
-            new(width * 0.6f, height * 0.16f),
-            new(width * 0.28f, height * 0.1f),
-            new(width * 0.62f, height * 0.22f)
-        };
-        int[] seeds = { 113, 271, 419 };
+        Color glowColor = new(1f, 1f, 1f, 0.32f);
+        Color coreColor = new(1f, 1f, 1f, 1f);
+        Color hotColor = new(1f, 1f, 1f, 0.7f);
 
-        for (int i = 0; i < boltStarts.Length; i++)
+        Vector2[] mainCoil =
         {
-            Vector2[] mainPath = BuildLightningPath(seeds[i], boltStarts[i], boltEnds[i], width * 0.12f, 7 + i);
-            DrawLightningBolt(texture, mainPath, coreColor, glowColor, 1, 3);
+            new(width * 0.52f, height * 0.06f),
+            new(width * 0.38f, height * 0.2f),
+            new(width * 0.62f, height * 0.36f),
+            new(width * 0.34f, height * 0.52f),
+            new(width * 0.58f, height * 0.68f),
+            new(width * 0.42f, height * 0.84f)
+        };
 
-            int branchIndexA = Mathf.Clamp(mainPath.Length / 3, 1, mainPath.Length - 2);
-            int branchIndexB = Mathf.Clamp((mainPath.Length * 2) / 3, 1, mainPath.Length - 2);
-            float branchAngleA = i % 2 == 0 ? 34f : 146f;
-            float branchAngleB = i % 2 == 0 ? 228f : 318f;
-            DrawLightningBranch(texture, mainPath[branchIndexA], branchAngleA, width * 0.16f, seeds[i] + 17, coreColor, glowColor, 1, 2);
-            DrawLightningBranch(texture, mainPath[branchIndexB], branchAngleB, width * 0.12f, seeds[i] + 29, coreColor, glowColor, 1, 2);
-            StampSoftPixel(texture, Mathf.RoundToInt(mainPath[branchIndexA].x), Mathf.RoundToInt(mainPath[branchIndexA].y), new Color(1f, 1f, 1f, 0.3f), 3);
-        }
+        Vector2[] sideCoil =
+        {
+            new(width * 0.3f, height * 0.14f),
+            new(width * 0.18f, height * 0.3f),
+            new(width * 0.42f, height * 0.48f),
+            new(width * 0.24f, height * 0.62f)
+        };
+
+        Vector2[] innerCoil =
+        {
+            new(width * 0.62f, height * 0.16f),
+            new(width * 0.5f, height * 0.3f),
+            new(width * 0.68f, height * 0.46f),
+            new(width * 0.48f, height * 0.62f),
+            new(width * 0.6f, height * 0.78f)
+        };
+
+        DrawLightningPolyline(texture, mainCoil, width * 0.06f, 113, coreColor, glowColor, 2, 4);
+        DrawLightningPolyline(texture, sideCoil, width * 0.04f, 271, coreColor, glowColor, 1, 3);
+        DrawLightningPolyline(texture, innerCoil, width * 0.035f, 347, coreColor, glowColor, 1, 3);
+        DrawLightningBranch(texture, new Vector2(width * 0.37f, height * 0.27f), 208f, width * 0.14f, 701, coreColor, glowColor, 1, 3);
+        DrawLightningBranch(texture, new Vector2(width * 0.58f, height * 0.58f), 32f, width * 0.12f, 733, coreColor, glowColor, 1, 3);
+        DrawLightningBranch(texture, new Vector2(width * 0.42f, height * 0.8f), 148f, width * 0.11f, 761, coreColor, glowColor, 1, 3);
+        DrawLightningBranch(texture, new Vector2(width * 0.5f, height * 0.42f), 314f, width * 0.1f, 809, coreColor, glowColor, 1, 3);
+        DrawLightningBranch(texture, new Vector2(width * 0.46f, height * 0.66f), 14f, width * 0.1f, 863, coreColor, glowColor, 1, 3);
+
+        StampSoftPixel(texture, Mathf.RoundToInt(width * 0.36f), Mathf.RoundToInt(height * 0.23f), hotColor, 4);
+        StampSoftPixel(texture, Mathf.RoundToInt(width * 0.55f), Mathf.RoundToInt(height * 0.57f), hotColor, 4);
+        StampSoftPixel(texture, Mathf.RoundToInt(width * 0.42f), Mathf.RoundToInt(height * 0.82f), hotColor, 5);
+        StampSoftPixel(texture, Mathf.RoundToInt(width * 0.5f), Mathf.RoundToInt(height * 0.42f), hotColor, 3);
 
         for (int y = 0; y < height; y++)
         {
-            float yProgress = y / (height - 1f);
-            float bottomFade = Mathf.Clamp01(yProgress / 0.08f);
-            float topFade = Mathf.Clamp01((0.82f - yProgress) / 0.16f);
-            float endFade = bottomFade * topFade;
-
             for (int x = 0; x < width; x++)
             {
                 Color pixel = texture.GetPixel(x, y);
@@ -1024,53 +1099,169 @@ internal sealed class OrbVisualService
                     continue;
                 }
 
-                float xProgress = Mathf.Abs((x / (width - 1f)) - 0.5f);
-                float sideFade = Mathf.Clamp01(1f - (xProgress / 0.58f));
-                pixel.a *= endFade * sideFade;
+                float normalizedX = Mathf.Abs(((x / (width - 1f)) - 0.5f) * 2f);
+                float normalizedY = y / (height - 1f);
+                float sideFade = Mathf.Clamp01(1f - (normalizedX * normalizedX * 0.88f));
+                float bottomFade = Mathf.Clamp01(normalizedY / 0.08f);
+                float topFade = Mathf.Clamp01((0.94f - normalizedY) / 0.1f);
+                pixel.a *= sideFade * bottomFade * topFade;
                 texture.SetPixel(x, y, pixel.a <= 0.001f ? Color.clear : pixel);
             }
         }
 
         texture.Apply();
-        _heroLightningRibbonSprite = Sprite.Create(texture, new Rect(0f, 0f, width, height), new Vector2(0.5f, 0.76f), height);
-        _heroLightningRibbonSprite.name = "DeVect_HeroLightningRibbonSprite";
-        return _heroLightningRibbonSprite;
+        _heroLightningCoilSprite = Sprite.Create(texture, new Rect(0f, 0f, width, height), new Vector2(0.5f, 0.03f), height);
+        _heroLightningCoilSprite.name = "DeVect_HeroLightningCoilSprite";
+        return _heroLightningCoilSprite;
     }
 
-    private static Sprite CreateHeroLightningGlowSprite()
+    private static Sprite CreateHeroLightningBandSprite()
     {
-        if (_heroLightningGlowSprite != null)
+        if (_heroLightningBandSprite != null)
         {
-            return _heroLightningGlowSprite;
+            return _heroLightningBandSprite;
         }
 
         const int width = 64;
-        const int height = 96;
+        const int height = 44;
         Texture2D texture = new(width, height, TextureFormat.RGBA32, false)
         {
             filterMode = FilterMode.Bilinear,
             wrapMode = TextureWrapMode.Clamp,
-            name = "DeVect_HeroLightningGlow"
+            name = "DeVect_HeroLightningBand"
         };
 
-        Vector2 center = new(width * 0.5f, height * 0.42f);
-        Vector2 outerRadius = new(width * 0.3f, height * 0.3f);
-        Vector2 innerRadius = new(width * 0.15f, height * 0.22f);
+        Vector2 center = new(width * 0.5f, height * 0.18f);
         for (int y = 0; y < height; y++)
         {
             for (int x = 0; x < width; x++)
             {
-                float outerGlow = SampleEllipseMask(x, y, center, outerRadius, 1.7f);
-                float innerCore = SampleEllipseMask(x, y, center + new Vector2(0f, height * 0.03f), innerRadius, 1.9f);
-                float alpha = Mathf.Clamp01((outerGlow * 0.62f) + (innerCore * 0.42f));
+                float baseGlow = SampleEllipseMask(x, y, center, new Vector2(width * 0.28f, height * 0.16f), 1.65f);
+                float leftLobe = SampleEllipseMask(x, y, new Vector2(width * 0.31f, height * 0.24f), new Vector2(width * 0.1f, height * 0.14f), 1.55f);
+                float rightLobe = SampleEllipseMask(x, y, new Vector2(width * 0.69f, height * 0.24f), new Vector2(width * 0.1f, height * 0.14f), 1.55f);
+                float centerHot = SampleEllipseMask(x, y, new Vector2(width * 0.5f, height * 0.28f), new Vector2(width * 0.1f, height * 0.1f), 1.8f);
+                float alpha = Mathf.Clamp01((baseGlow * 0.5f) + (Mathf.Max(leftLobe, rightLobe) * 0.28f) + (centerHot * 0.34f));
                 texture.SetPixel(x, y, alpha <= 0.001f ? Color.clear : new Color(1f, 1f, 1f, alpha));
             }
         }
 
+        Vector2[] groundFlow =
+        {
+            new(width * 0.1f, height * 0.2f),
+            new(width * 0.3f, height * 0.33f),
+            new(width * 0.48f, height * 0.24f),
+            new(width * 0.7f, height * 0.35f),
+            new(width * 0.9f, height * 0.22f)
+        };
+
+        Vector2[] upperGroundFlow =
+        {
+            new(width * 0.14f, height * 0.34f),
+            new(width * 0.3f, height * 0.42f),
+            new(width * 0.46f, height * 0.36f),
+            new(width * 0.62f, height * 0.44f),
+            new(width * 0.86f, height * 0.32f)
+        };
+
+        DrawLightningPolyline(texture, groundFlow, width * 0.028f, 877, Color.white, new Color(1f, 1f, 1f, 0.24f), 1, 3);
+        DrawLightningPolyline(texture, upperGroundFlow, width * 0.022f, 941, Color.white, new Color(1f, 1f, 1f, 0.18f), 1, 2);
+        StampSoftPixel(texture, Mathf.RoundToInt(width * 0.3f), Mathf.RoundToInt(height * 0.28f), new Color(1f, 1f, 1f, 0.22f), 4);
+        StampSoftPixel(texture, Mathf.RoundToInt(width * 0.66f), Mathf.RoundToInt(height * 0.3f), new Color(1f, 1f, 1f, 0.22f), 4);
+
         texture.Apply();
-        _heroLightningGlowSprite = Sprite.Create(texture, new Rect(0f, 0f, width, height), new Vector2(0.5f, 0.74f), height);
-        _heroLightningGlowSprite.name = "DeVect_HeroLightningGlowSprite";
-        return _heroLightningGlowSprite;
+        _heroLightningBandSprite = Sprite.Create(texture, new Rect(0f, 0f, width, height), new Vector2(0.5f, 0.08f), height);
+        _heroLightningBandSprite.name = "DeVect_HeroLightningBandSprite";
+        return _heroLightningBandSprite;
+    }
+
+    private static Sprite CreateHeroLightningArcSprite()
+    {
+        if (_heroLightningArcSprite != null)
+        {
+            return _heroLightningArcSprite;
+        }
+
+        const int width = 48;
+        const int height = 40;
+        Texture2D texture = new(width, height, TextureFormat.RGBA32, false)
+        {
+            filterMode = FilterMode.Bilinear,
+            wrapMode = TextureWrapMode.Clamp,
+            name = "DeVect_HeroLightningArc"
+        };
+
+        Color clear = new(0f, 0f, 0f, 0f);
+        Color[] clearPixels = new Color[width * height];
+        for (int i = 0; i < clearPixels.Length; i++)
+        {
+            clearPixels[i] = clear;
+        }
+
+        texture.SetPixels(clearPixels);
+
+        Vector2 center = new(width * 0.48f, height * 0.46f);
+        Color glowColor = new(1f, 1f, 1f, 0.3f);
+        Color coreColor = new(1f, 1f, 1f, 1f);
+        StampSoftPixel(texture, Mathf.RoundToInt(center.x), Mathf.RoundToInt(center.y), new Color(1f, 1f, 1f, 0.46f), 6);
+        StampSoftPixel(texture, Mathf.RoundToInt(center.x), Mathf.RoundToInt(center.y), Color.white, 2);
+
+        float[] angles = { 22f, 154f, 218f, 332f };
+        float[] lengths = { width * 0.18f, width * 0.14f, width * 0.12f, width * 0.16f };
+        for (int i = 0; i < angles.Length; i++)
+        {
+            DrawLightningBranch(texture, center, angles[i], lengths[i], 811 + (i * 37), coreColor, glowColor, 1, 2);
+        }
+        DrawLightningBranch(texture, center, 84f, width * 0.12f, 1171, coreColor, glowColor, 1, 2);
+        DrawLightningBranch(texture, center, 280f, width * 0.1f, 1219, coreColor, glowColor, 1, 2);
+
+        Vector2[] sweep =
+        {
+            new(width * 0.16f, height * 0.24f),
+            new(width * 0.42f, height * 0.48f),
+            new(width * 0.82f, height * 0.28f)
+        };
+        DrawLightningPolyline(texture, sweep, width * 0.025f, 991, coreColor, glowColor, 1, 2);
+
+        texture.Apply();
+        _heroLightningArcSprite = Sprite.Create(texture, new Rect(0f, 0f, width, height), new Vector2(0.5f, 0.22f), height);
+        _heroLightningArcSprite.name = "DeVect_HeroLightningArcSprite";
+        return _heroLightningArcSprite;
+    }
+
+    private static Sprite CreateHeroLightningKnotSprite()
+    {
+        if (_heroLightningKnotSprite != null)
+        {
+            return _heroLightningKnotSprite;
+        }
+
+        const int size = 32;
+        Texture2D texture = new(size, size, TextureFormat.RGBA32, false)
+        {
+            filterMode = FilterMode.Bilinear,
+            wrapMode = TextureWrapMode.Clamp,
+            name = "DeVect_HeroLightningKnot"
+        };
+
+        for (int y = 0; y < size; y++)
+        {
+            for (int x = 0; x < size; x++)
+            {
+                float outer = SampleEllipseMask(x, y, new Vector2(size * 0.5f, size * 0.5f), new Vector2(size * 0.18f, size * 0.18f), 1.7f);
+                float inner = SampleEllipseMask(x, y, new Vector2(size * 0.5f, size * 0.5f), new Vector2(size * 0.08f, size * 0.08f), 2f);
+                float alpha = Mathf.Clamp01((outer * 0.56f) + (inner * 0.92f));
+                texture.SetPixel(x, y, alpha <= 0.001f ? Color.clear : new Color(1f, 1f, 1f, alpha));
+            }
+        }
+
+        DrawLightningBranch(texture, new Vector2(size * 0.5f, size * 0.5f), 42f, size * 0.16f, 1201, Color.white, new Color(1f, 1f, 1f, 0.2f), 1, 2);
+        DrawLightningBranch(texture, new Vector2(size * 0.5f, size * 0.5f), 202f, size * 0.13f, 1237, Color.white, new Color(1f, 1f, 1f, 0.2f), 1, 2);
+        DrawLightningBranch(texture, new Vector2(size * 0.5f, size * 0.5f), 304f, size * 0.11f, 1289, Color.white, new Color(1f, 1f, 1f, 0.18f), 1, 2);
+
+        texture.Apply();
+        _heroLightningKnotSprite = Sprite.Create(texture, new Rect(0f, 0f, size, size), new Vector2(0.5f, 0.5f), size);
+        _heroLightningKnotSprite.name = "DeVect_HeroLightningKnotSprite";
+        return _heroLightningKnotSprite;
     }
 
     private static Sprite CreateElectricAuraSprite()
@@ -1755,6 +1946,25 @@ internal sealed class OrbVisualService
                 StampSoftPixel(texture, pixelX, pixelY, glowColor, glowRadius);
                 StampSoftPixel(texture, pixelX, pixelY, coreColor, coreRadius);
             }
+        }
+    }
+
+    private static void DrawLightningPolyline(Texture2D texture, Vector2[] controlPoints, float jitter, int seed, Color coreColor, Color glowColor, int coreRadius, int glowRadius)
+    {
+        if (controlPoints.Length < 2)
+        {
+            return;
+        }
+
+        for (int i = 0; i < controlPoints.Length - 1; i++)
+        {
+            Vector2 from = controlPoints[i];
+            Vector2 to = controlPoints[i + 1];
+            float distance = Vector2.Distance(from, to);
+            int segmentCount = Mathf.Max(3, Mathf.CeilToInt(distance / 12f));
+            float segmentJitter = Mathf.Min(jitter, distance * 0.22f);
+            Vector2[] segment = BuildLightningPath(seed + (i * 97), from, to, segmentJitter, segmentCount);
+            DrawLightningBolt(texture, segment, coreColor, glowColor, coreRadius, glowRadius);
         }
     }
 
