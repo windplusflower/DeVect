@@ -194,7 +194,7 @@ internal sealed class OrbSystem
         }
 
         List<HealthManager> enemies = _combatService.FindAllEnemiesInRadius(hero, 20f);
-        DealIceBigSkillRoomAoe(hero, enemies, _getCurrentNailDamage());
+        DealIceBigSkillRoomAoe(hero, enemies, GetIceBigSkillDamage());
         EnqueueOrbSpawns(OrbTypeId.Black, enemies.Count + 2);
     }
 
@@ -234,6 +234,18 @@ internal sealed class OrbSystem
         return playerData != null && HasShamanStone(playerData)
             ? Mathf.CeilToInt(_getCurrentNailDamage() * 0.2f)
             : 0;
+    }
+
+    private int GetIceBigSkillDamage()
+    {
+        int baseDamage = _getCurrentNailDamage();
+        PlayerData? playerData = PlayerData.instance;
+        if (playerData == null || !HasShamanStone(playerData))
+        {
+            return baseDamage;
+        }
+
+        return Mathf.Max(1, Mathf.CeilToInt(baseDamage * (4f / 3f)));
     }
 
     public int GetOrbSlotCapacity()

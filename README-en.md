@@ -1,171 +1,142 @@
-# DeVect (Gu Zhang Ji Qi Ren)
+# DeVect
 
 [**中文说明**](README.md) | **English Version**
 
-`DeVect`, titled `骨杖寂骑人` in Chinese, is a Hollow Knight mod that brings Defect-style orb gameplay from *Slay the Spire* into the Knight's combat kit.
+`DeVect` is a Hollow Knight mod that turns the Knight's spell inputs into a Defect-style orb system.
 
-## Overview
+Combat revolves around `Lightning Form` and `Ice Form`, with `form swapping`, `passive triggers`, `queued orb generation`, `full-slot evocation`, and `ice shield absorption` as the main mechanics.
 
-Instead of casting the three vanilla spells directly, you turn them into a `Yellow Orb`, a `White Orb`, and a dive-powered `Black Slot` ice shield.
+## Core Gameplay
 
-- Fireball spells create a `Yellow Orb`
-- Shriek spells create a `White Orb`
-- Dive spells create the `Black Slot`
-- Whenever the Knight either takes normal enemy/contact damage, lands a real nail parry, or pulls off a valid shadow-dash dodge on the `3rd` dash physics step, the system advances `1` round and each active slot resolves its `passive` once
-- If your slots are full, casting again pushes the rightmost orb out and triggers that slot's `evocation`
+- `Spell button only`: swap between `Lightning Form` and `Ice Form`
+- `Down + spell`: use the current form's small skill
+- `Up + spell`: use the current form's big skill
+- Every `form swap` immediately triggers the `passive` of all active orbs
+- New orbs are generated in sequence with a short delay between each one
+- When your slots are full, the new orb still enters and the rightmost old orb gets pushed out and `evokes`
 
-The result keeps Hollow Knight's spell inputs, but turns combat into a more Defect-style rhythm of storing, cycling, evoking, and building shield.
+The system operates through form swapping, orb order, queued generation, and ice shield absorption.
 
-## Name Meaning
+## Inputs and Costs
 
-`DeVect` is a reshaped name based on `The Defect`.
+This readme uses `Spirit/Wave`, `Dive`, and `Shriek` as shorthand for the three spell inputs.
 
-- It keeps the mechanical, unstable sound of `Defect`
-- `Vect` can be read as a nod to `Vessel`, tying the name back to the Knight's identity in Hollow Knight
-- Put together, the name sounds like both a malfunctioning construct and a vessel that has broken away from its intended role
+### Form Swap
 
-The Chinese title, `骨杖寂骑人`, leans more into the Hollow Knight side of the fusion:
+- Costs `1` spell cast
+- Swaps between `Lightning Form` and `Ice Form`
+- Immediately triggers all current orb passives
 
-- `骨杖` echoes the nail and the Knight's bone-themed imagery
-- `寂骑人` keeps the playful naming flavor while pointing to the Knight's silence, emptiness, and vessel identity
+### Small Skill
 
-## Core Rules
+- Costs `1` spell cast
+- `Lightning Form`: generate `1` Lightning Orb
+- `Ice Form`: generate `1` Ice Orb
 
-- `Vengeful Spirit / Shade Soul` maps to `Yellow Orb`
-- `Howling Wraiths / Abyss Shriek` maps to `White Orb`
-- `Desolate Dive / Descending Dark` maps to the `Black Slot (Ice Shield)`
-- Spells still cost Soul, and `Spell Twister` still reduces the cost
-- If you have not unlocked a given spell line yet, the matching slot cannot be generated
-- Yellow and White damage scale from your real current nail damage, not vanilla spell damage
-- `Strength` and `Fury of the Fallen` raise base nail damage first, so they also raise Yellow and White value indirectly
-- The Black Slot does not deal damage directly, its passive gives `1` ice petal and its evocation gives `3` ice petals
-- Every `4` petals absorb `1` damage, up to `16` petals total, which means up to `4` damage absorbed
-- `IceShieldDisplay` shows your current ice shield on the HUD
+### Big Skill
 
-## Orb Slots
+- Costs `3` spell casts
+- `Lightning Form`: generate a number of Lightning Orbs equal to `the total Lightning Orbs already generated in the current room`
+- `Ice Form`: generate `number of enemies within 20 range + 2` Ice Orbs, then immediately deal `1x` current nail damage to all enemies in that radius; if `Shaman Stone` is equipped, this becomes `ceil(current nail damage x 4/3)`
+
+Extra notes:
+
+- `Spell Twister` still reduces spell cost normally, so it also lowers the total cost of swapping, small skills, and big skills
+- The extra Lightning Orbs created by Lightning big skill are also added to the current room count
+- If you have not generated any Lightning Orbs in the current room yet, your first Lightning big skill will spend Soul but generate no orbs
+
+## Unlock Rules
+
+- `Spirit/Wave` is the input used for `form swapping`
+- As long as the `Vengeful Spirit / Shade Soul` line is unlocked, Lightning Form can generate Lightning Orbs; Lightning Orb damage no longer splits by white/dark spell tier
+- `Dive` is the input used for the `small skill`; without the dive spell line, Ice Form cannot generate Ice Orbs
+- `Shriek` is the input used for the `big skill`
+- If the orb type of your current form is not unlocked yet, that form's small skill and big skill will not generate orbs
+
+## Orb Slot Rules
 
 | Rule | Effect |
 |------|--------|
-| Default capacity | Up to `3` active slots |
-| Flukenest | Expands the orb system to `4` slots |
-| New orb order | New orbs enter from the left and push older ones right |
+| Default capacity | `3` active slots |
+| `Flukenest` | Expands the system to `4` slots |
+| Entry order | New orbs always enter from the left and push older ones to the right |
 | Evocation order | The rightmost orb is the oldest and evokes first |
-| Scene transitions | Orb order, stored values, and ice shield are preserved |
-| Bench save | Clears generated orbs and the current ice shield |
+| Queued generation | During orb generation you can still move and keep casting to queue more, but you cannot attack |
+| Scene transitions | Clear active orbs, clear the pending queue, and reset the room's Lightning count |
+| Bench save | Clears current orbs and current ice shield |
 
-## White Spell / Dark Spell Tiers
+Extra notes:
 
-Each Hollow Knight spell line has two tiers:
+- Your current form does not reset on normal scene transitions
+- Ice shield is not cleared by normal room transitions, but it is cleared when saving at a bench
 
-- `White spell`, the base version
-- `Dark spell`, the upgraded version
+## Orb Design
 
-In this mod, each effect reads the tier of its own spell line for its base rule set.
+## Lightning Orb
 
-That means:
+Lightning Orb has the following effects.
 
-- Yellow checks the current tier of the fireball line
-- White checks the current tier of the shriek line
-- The Black Slot is generated by the dive line, but its current ice-shield values are the same on both spell tiers
+### Passive
 
-## The Three Slots
+- Deals `ceil(current nail damage x 1/3)` to one random nearby enemy
 
-### Yellow Orb
+### Evocation
 
-| Item | White spell | Dark spell |
-|------|-------------|------------|
-| Created by | Fireball spells | Fireball spells |
-| Passive | Deals about `1/4` of current nail damage to one random nearby enemy | Deals about `1/3` of current nail damage to one random nearby enemy |
-| Evocation | Deals about `0.75x` current nail damage to one random nearby enemy | Deals `1x` current nail damage to one random nearby enemy |
-| Role | Steady chip damage and lighter early pressure | Stronger, more reliable single-target pressure |
+- Deals `ceil(current nail damage x 2/3)` to one random nearby enemy
 
-### White Orb
+## Ice Orb
 
-| Item | White spell | Dark spell |
-|------|-------------|------------|
-| Created by | Shriek spells | Shriek spells |
-| Starting damage | About `1/4` of current nail damage | About `1/3` of current nail damage |
-| Passive | Hits all enemies in range for current stored damage, then loses `1` damage | Hits all enemies in range for current stored damage, then loses `1` damage |
-| Extra rule | It shatters and disappears when its damage reaches `0` | It shatters and disappears when its damage reaches `0` |
-| Evocation | Hits all enemies in range for `2x` its current stored damage | Hits all enemies in range for `2x` its current stored damage |
-| Role | Milder early AoE scaling | Stronger sustained area control and wave clear |
+Ice Orb does not deal damage directly. Its job is to build ice shield.
 
-Note: the White-vs-Dark difference for White Orb is mainly in its `starting damage`. Its passive decay and `2x` evocation structure stay the same.
+### Passive
 
-### Black Slot (Ice Shield)
+- Gain `1` ice petal
 
-| Item | White spell | Dark spell |
-|------|-------------|------------|
-| Created by | Dive spells | Dive spells |
-| Passive | Gain `1` ice petal | Gain `1` ice petal |
-| Evocation | Gain `3` ice petals | Gain `3` ice petals |
-| Defense rule | Every `4` petals absorb `1` damage, up to `4` damage total | Every `4` petals absorb `1` damage, up to `4` damage total |
-| HUD | `IceShieldDisplay` shows the current shield | `IceShieldDisplay` shows the current shield |
-| Role | Defensive slot for safety, trading room, and close-range tempo | Defensive slot for safety, trading room, and close-range tempo |
+### Evocation
 
-Note: the Black Slot now exists only to build ice shield. It is no longer the old stored-damage Dark Orb.
+- Gain `3` ice petals
+
+### Ice Shield Rules
+
+- Every `4` petals `=` `1` damage blocked
+- Fewer than `4` petals are only stored and do not block damage yet
+- You can store up to `16` petals total, which means up to `4` damage blocked
+- Damage is absorbed by complete shield layers first
+
+## Numerical Design
+
+All major numbers are built around `current nail damage`.
+
+- Lightning Orb damage scales from your current nail damage
+- Ice big skill damage uses your current nail damage by default; with `Shaman Stone`, it becomes `ceil(current nail damage x 4/3)`
+- `Strength` and `Fury of the Fallen` raise nail damage first, then indirectly raise these orb values
+- For balance, the Knight's own nail swings and nail arts are clamped to `1` damage against enemies
+
+As a result, orb damage and Ice-form big skill damage scale with your current nail damage, while the Knight's normal nail and nail-art hits still land as `1` damage against enemies.
 
 ## Charm Synergy
 
-| Charm | Effect |
-|------|--------|
-| `Shaman Stone` | No longer buffs vanilla spells, it now buffs Yellow and White damage resolution |
-| `Flukenest` | No longer changes fireballs, it expands orb capacity from `3` to `4` |
-| `Spell Twister` | Still only reduces Soul cost |
-| `Soul Catcher` / `Soul Eater` | Currently unchanged beyond their normal behavior |
-| `Fragile/Unbreakable Strength` / `Fury of the Fallen` | Indirectly buff Yellow and White because those lines use real current nail damage |
+| Charm | Current effect |
+|------|----------------|
+| `Shaman Stone` | Buffs Lightning Orb damage and raises Ice-form big skill AoE to `ceil(current nail damage x 4/3)` |
+| `Flukenest` | Expands orb capacity from `3` to `4` |
+| `Spell Twister` | Reduces Soul cost for swaps, small skills, and big skills as normal |
+| `Soul Catcher` / `Soul Eater` | Keep their normal behavior |
+| `Strength` / `Fury of the Fallen` | Indirectly buff orb performance by raising current nail damage |
 
-### Current Shaman Stone Rule
+### Shaman Stone
 
-Shaman Stone no longer uses the old flat `+2` model. For orb effects that actually deal damage, it now works like this:
+Shaman Stone has two effects.
 
-- `extra damage = ceil(baseNailDamage * 0.2 * damageScale)`
-
-Where:
-
-- `baseNailDamage` is your real current nail damage after existing modifiers such as `Strength` and `Fury of the Fallen`
-- `damageScale` is the base multiplier of that specific damage event relative to nail damage
+- Lightning Orb bonus damage formula: `ceil(current nail damage x 0.2 x event multiplier)`
+- Ice-form big skill AoE damage: `ceil(current nail damage x 4/3)`
 
 Example:
 
-- Yellow Orb `dark-spell passive` uses a base scale of `1/3`
-- So its Shaman bonus becomes `ceil(baseNailDamage * 0.2 / 3)`
+- Lightning passive always uses a `1/3` multiplier
+- Its Shaman bonus becomes `ceil(current nail damage x 0.2 x 1/3)`
 
-Additional notes:
+Extra notes:
 
-- Yellow calculates Shaman bonus separately for passive and evocation because those two events use different scales
-- White only gets its Shaman bonus once when its starting damage is created, later passive hits and `2x` evocation simply inherit the stored value
-- The Black Slot does not use this bonus right now because it only grants shield
-
-## How It Plays
-
-- Yellow is the most stable slot and works best as repeatable single-target pressure
-- White is better for crowd control and sustained AoE pacing
-- The Black Slot is defensive, it gets the most value when you keep rounds advancing and keep feeding petals into the shield
-- If you only have the white-tier version of a spell, Yellow and White are intentionally weaker until that spell line is upgraded. The Black Slot currently does not split its values by spell tier
-
-## Suggested Playstyles
-
-- `Yellow-focused`, stable single-target pressure with frequent fireball conversions
-- `White-focused`, repeated area damage and wave clear built around stacking multiple round-advance sources
-- `Black Slot focused`, use dive casts and slot rotation to build shield before risky trades and close-range fights
-- `Mixed rotation`, use White for control, Yellow for pressure, and the Black Slot for safety
-
-## Tips
-
-- If your spells are not coming out normally, that is usually intended, they have been converted into orbs or the shield slot
-- If a direction never generates anything, first check whether that spell line has been unlocked yet
-- The Black Slot needs `4` petals to block `1` damage, and it caps at `16` petals, which means `4` damage total
-- `IceShieldDisplay` shows the current shield on the HUD, and scene changes keep it
-- Saving at a bench clears generated orbs and the current ice shield, so do not treat bench saves as a way to bank setup for the next fight
-- Once `Flukenest` gives you a fourth slot, orb order matters much more because it changes both evocation timing and how long the Black Slot stays in rotation
-
-## Build and Install
-
-1. Copy `local.props.example` to `local.props`.
-2. Set `GameDir` in `local.props` to `Hollow Knight/hollow_knight_Data/Managed`.
-3. If `MMHOOK_Assembly-CSharp.dll`, `MMHOOK_PlayMaker.dll`, or `MonoMod.RuntimeDetour.dll` live outside `GameDir`, also set `ApiDir`. If you leave it unset, it defaults to `GameDir`.
-4. If you want a different post-build destination, set `InstallDir`. If you leave it unset, the default output path is `$(GameDir)/Mods/DeVect`.
-5. You can also skip `local.props` and provide paths through `/p:GameDir=...`, `/p:ApiDir=...`, or the `HOLLOW_KNIGHT_MANAGED_DIR` and `HOLLOW_KNIGHT_API_DIR` environment variables.
-6. Build `DeVect.csproj`. Before resolving references, the project checks for `Assembly-CSharp.dll`, `MMHOOK_Assembly-CSharp.dll`, `MMHOOK_PlayMaker.dll`, and `MonoMod.RuntimeDetour.dll`.
-7. After a successful build, the project copies `DeVect.dll`, plus `.pdb` and `.xml` when present, into the install directory, then writes `DeVect.zip` and `SHA256.txt` there as well.
+- Lightning evocation uses the same rule, with bonus damage `ceil(current nail damage x 0.2 x 2/3)`
+- Ice Orb shield generation itself is not affected by `Shaman Stone`
