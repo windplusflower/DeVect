@@ -28,7 +28,7 @@ internal sealed class YellowOrbDefinition : IOrbDefinition
         }
 
         int damage = GetScaledDamage(context, PassiveScale);
-        if (!context.Combat.TryDealOrbDamage(context.Hero, target, damage, AttackTypes.Generic))
+        if (!context.Combat.TryDealOrbDamage(context.Hero, target, damage, AttackTypes.Generic, bypassCustomHitCooldown: true))
         {
             return;
         }
@@ -46,7 +46,7 @@ internal sealed class YellowOrbDefinition : IOrbDefinition
         }
 
         int damage = GetScaledDamage(context, EvocationScale);
-        if (!context.Combat.TryDealOrbDamage(context.Hero, target, damage, AttackTypes.Generic))
+        if (!context.Combat.TryDealOrbDamage(context.Hero, target, damage, AttackTypes.Generic, bypassCustomHitCooldown: true))
         {
             return;
         }

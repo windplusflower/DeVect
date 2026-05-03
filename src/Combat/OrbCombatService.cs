@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Reflection;
 using UnityEngine;
 
 namespace DeVect.Combat;
@@ -91,6 +92,11 @@ internal sealed class OrbCombatService
                 continue;
             }
 
+            if (!IsTargetSelectable(healthManager))
+            {
+                continue;
+            }
+
             if (UseStrictTargetDistanceFilter && !IsTargetWithinStrictRange(hero, healthManager))
             {
                 continue;
@@ -140,7 +146,7 @@ internal sealed class OrbCombatService
         _enemySearchDebugRenderer = null;
     }
 
-    public bool TryDealOrbDamage(HeroController hero, HealthManager target, int damage, AttackTypes attackType)
+    public bool TryDealOrbDamage(HeroController hero, HealthManager target, int damage, AttackTypes attackType, bool bypassCustomHitCooldown = false)
     {
         if (hero == null || target == null || target.isDead || damage <= 0)
         {
@@ -165,6 +171,11 @@ internal sealed class OrbCombatService
             SpecialType = SpecialTypes.None,
             IsExtraDamage = false
         };
+
+        if (TryDealCustomDamage(target.gameObject, hitInstance, damage, hitDirection, previousHp, bypassCustomHitCooldown))
+        {
+            return true;
+        }
 
         target.Hit(hitInstance);
         if (target.isDead || (!wasDead && target.hp < previousHp))
@@ -347,5 +358,151 @@ internal sealed class OrbCombatService
             && offset.x <= EnemySearchRightRange
             && offset.y >= -EnemySearchDownRange
             && offset.y <= EnemySearchUpRange;
+    }
+
+    private static bool IsTargetSelectable(HealthManager target)
+    {
+        if (target == null)
+        {
+            return false;
+        }
+
+        GameObject targetObject = target.gameObject;
+        if (!targetObject.activeInHierarchy)
+        {
+            return false;
+        }
+
+        Renderer[] selfRenderers = targetObject.GetComponents<Renderer>();
+        if (selfRenderers.Length > 0)
+        {
+            for (int i = 0; i < selfRenderers.Length; i++)
+            {
+                Renderer renderer = selfRenderers[i];
+                if (renderer != null && renderer.enabled)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        Renderer[] renderers = targetObject.GetComponentsInChildren<Renderer>(true);
+        if (renderers.Length == 0)
+        {
+            return true;
+        }
+
+        for (int i = 0; i < renderers.Length; i++)
+        {
+            Renderer renderer = renderers[i];
+            if (renderer != null && renderer.enabled && renderer.gameObject.activeInHierarchy)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool TryDealCustomDamage(GameObject targetObject, HitInstance hitInstance, int damage, float hitDirection, int previousHp, bool bypassCustomHitCooldown)
+    {
+        if (targetObject == null)
+        {
+            return false;
+        }
+
+        HealthManager target = targetObject.GetComponent<HealthManager>();
+        if (target == null)
+        {
+            return false;
+        }
+
+        if (!HasCustomBulletHitTarget(targetObject))
+        {
+            return false;
+        }
+
+        HitTaker.Hit(targetObject, hitInstance);
+        if (target.isDead || target.hp < previousHp)
+        {
+            return true;
+        }
+
+        if (!bypassCustomHitCooldown)
+        {
+            return false;
+        }
+
+        Component[] components = targetObject.GetComponents<Component>();
+        for (int i = 0; i < components.Length; i++)
+        {
+            Component component = components[i];
+            if (component == null)
+            {
+                continue;
+            }
+
+            MethodInfo method = component.GetType().GetMethod(
+                "BulletHit",
+                BindingFlags.Instance | BindingFlags.Public,
+                binder: null,
+                types: new[] { typeof(int), typeof(float) },
+                modifiers: null);
+
+            if (method == null)
+            {
+                continue;
+            }
+
+            FieldInfo? cooldownField = GetField(component.GetType(), "lastBulletHitTime");
+            cooldownField?.SetValue(component, -999f);
+            method.Invoke(component, new object[] { damage, hitDirection });
+            return target.isDead || target.hp < previousHp;
+        }
+
+        return false;
+    }
+
+    private static bool HasCustomBulletHitTarget(GameObject targetObject)
+    {
+        Component[] components = targetObject.GetComponents<Component>();
+        for (int i = 0; i < components.Length; i++)
+        {
+            Component component = components[i];
+            if (component == null)
+            {
+                continue;
+            }
+
+            if (component.GetType().GetMethod(
+                "BulletHit",
+                BindingFlags.Instance | BindingFlags.Public,
+                binder: null,
+                types: new[] { typeof(int), typeof(float) },
+                modifiers: null) != null)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static FieldInfo? GetField(Type type, string name)
+    {
+        while (type != null)
+        {
+            FieldInfo? field = type.GetField(name, BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
+            if (field != null)
+            {
+                return field;
+            }
+
+            type = type.BaseType;
+        }
+
+        return null;
     }
 }
